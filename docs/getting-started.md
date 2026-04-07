@@ -3,6 +3,9 @@
 Use this guide when you want to complete the first MagicPay secret-request flow
 from your own runtime.
 
+This guide is for the primary root-SDK path. It assumes your runtime already
+knows which protected step it is continuing.
+
 ## Before You Start
 
 You need:
@@ -16,6 +19,10 @@ You need:
 
 If terms such as `storedSecretRef` or `fillRef` are new, open the
 [Glossary](./glossary.md) first.
+
+If your runtime does not build request input on its own and instead starts from
+observed browser forms, read [Integration Modes](./integration-modes.md) before
+you continue.
 
 ## 1. Install The SDK
 
@@ -36,6 +43,9 @@ const client = createMagicPayClient({
 });
 ```
 
+`createMagicPayClient(...)` gives you one typed client for both session helpers
+and secret-request helpers.
+
 ## 3. Load The Host Catalog
 
 Fetch the stored-secret catalog for the current protected step.
@@ -48,6 +58,8 @@ const catalog = await client.secrets.fetchCatalog(sessionId, pageUrl);
 ```
 
 The catalog tells you which `storedSecretRef` values are available for the host.
+It keeps the request narrow: one host, one protected step, one compatible
+stored secret.
 
 ## 4. Create One Secret Request
 
@@ -121,9 +133,11 @@ next:
 
 For concrete patterns, open [Examples Index](./examples.md).
 
-## When To Use AgentBrowse
+## Optional Browser Bridge
 
-If your runtime begins with `observe(...)` on a live page and wants a typed
-bridge from observed forms to MagicPay request input, move to
+Most integrations stop here.
+
+If your runtime already uses `@mercuryo-ai/agentbrowse` and starts from
+observed protected forms, the optional bridge is documented in
 [Integration Modes](./integration-modes.md) and
 [`examples/agentbrowse-bridge.ts`](../examples/agentbrowse-bridge.ts).

@@ -1,23 +1,27 @@
 # MagicPay SDK Docs
 
-This docs set is for integrators who use `@mercuryo-ai/magicpay-sdk` from a
-trusted runtime, backend, worker, or browser-automation flow.
+This docs set is for integrators using `@mercuryo-ai/magicpay-sdk` from a
+trusted Node or TypeScript runtime to request and claim stored secrets for a
+protected step.
 
 Use this route map:
 
-- Start with [Getting Started](./getting-started.md) for the first request,
-  poll, and claim flow.
-- Read [Integration Modes](./integration-modes.md) when you need to choose
-  between the root client, the AgentBrowse bridge, and the pure `core`
-  helpers.
-- Use [API Reference](./api-reference.md) and
-  [Error Reference](./error-reference.md) as lookup documents while
-  integrating.
-- Use [Testing Guide](./testing.md) when you want deterministic transport tests
-  with `fetchImpl`.
-- Use [Examples Index](./examples.md) to jump to runnable integration snippets.
-- Use [Glossary](./glossary.md) when you need the exact meaning of MagicPay
-  terms such as `storedSecretRef`, `fillRef`, or `scopeRef`.
+- [Getting Started](./getting-started.md)
+  Tutorial for the first catalog -> request -> poll -> claim flow.
+- [Integration Modes](./integration-modes.md)
+  Explanation of the root SDK, pure helpers, and the optional AgentBrowse
+  bridge.
+- [API Reference](./api-reference.md)
+  Lookup reference for the public entrypoints and client methods.
+- [Error Reference](./error-reference.md)
+  Lookup reference for failure kinds and error helpers.
+- [Examples Index](./examples.md)
+  Focused integration recipes you can adapt.
+- [Testing Guide](./testing.md)
+  How to run deterministic transport tests with `fetchImpl`.
+- [Glossary](./glossary.md)
+  Definitions for MagicPay terms such as `storedSecretRef`, `fillRef`, and
+  `scopeRef`.
 
-The package frontdoor stays at [README.md](../README.md).
-
+If you are new to the package, start at the
+[package README](../README.md) first.

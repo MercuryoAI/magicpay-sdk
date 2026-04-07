@@ -1,31 +1,46 @@
 # @mercuryo-ai/magicpay-sdk
 
-MagicPay SDK is the TypeScript and Node client for MagicPay workflow sessions,
-stored-secret catalogs, approval requests, and one-time secret claims.
+MagicPay SDK is the TypeScript and Node SDK for requesting, approving, and
+claiming stored-secret values for one protected step in a MagicPay workflow.
 
-The npm package publishes the runtime client. The public GitHub repo at
-[`MercuryoAI/magicpay-sdk`](https://github.com/MercuryoAI/magicpay-sdk) publishes
-the expanded documentation and example integrations only. It does not publish
-the SDK source code.
+Use it when your application, worker, agent runtime, or MCP tool needs to:
+
+- load the stored-secret catalog for the current protected step;
+- create one approval request for one protected field group;
+- poll until the request is fulfilled or reaches a terminal state;
+- claim the single-use secret payload;
+- continue the surrounding session flow with typed SDK helpers.
+
+MagicPay SDK focuses on the MagicPay domain flow itself. It is not a browser
+automation package. Your runtime still owns browser control, approval UX,
+orchestration, and the business action that happens after the claim succeeds.
+
+## When To Use It
+
+This package is the right entry point when:
+
+- you already know which protected step you are continuing;
+- you run trusted Node or TypeScript code;
+- you want a typed client instead of assembling raw HTTP requests yourself.
+
+Typical integrations:
+
+- backend services and workers;
+- MCP tools and agent backends;
+- browser automation runtimes that already know the protected target;
+- provider-specific API flows that consume a claimed payload outside the
+  browser.
 
 ## Install
 
-Install the root SDK when your runtime already knows how it will use a claimed
-secret payload:
+Install the root SDK:
 
 ```bash
 npm i @mercuryo-ai/magicpay-sdk
 ```
 
-Install AgentBrowse as well when your runtime starts from observed protected
-forms and wants the MagicPay bridge helpers:
-
-```bash
-npm i @mercuryo-ai/magicpay-sdk @mercuryo-ai/agentbrowse
-```
-
-Create your API key in the MagicPay control plane:
-[`agents.mercuryo.io/signup`](https://agents.mercuryo.io/signup)
+Create your API key at
+[`agents.mercuryo.io/signup`](https://agents.mercuryo.io/signup).
 
 MagicPay API base URL:
 
@@ -35,13 +50,25 @@ https://agents-api.mercuryo.io/functions/v1/api
 
 ## Choose An Entrypoint
 
+Most integrations use the root package only.
+
 | Entrypoint | Use it when |
 | --- | --- |
-| `@mercuryo-ai/magicpay-sdk` | Your runtime can create request input and consume claimed secrets on its own. |
-| `@mercuryo-ai/magicpay-sdk/agentbrowse` | Your runtime already uses `@mercuryo-ai/agentbrowse` and starts from observed forms. |
-| `@mercuryo-ai/magicpay-sdk/core` | You need the pure domain helpers without the networked client wrapper. |
+| `@mercuryo-ai/magicpay-sdk` | You want the main networked client for catalog, request, poll, claim, and session helpers. |
+| `@mercuryo-ai/magicpay-sdk/core` | You want the pure domain helpers without the networked client wrapper. |
+| `@mercuryo-ai/magicpay-sdk/agentbrowse` | You already use `@mercuryo-ai/agentbrowse` and want the optional bridge from observed forms to MagicPay request and fill input. |
+
+If your runtime already starts from observed protected forms and you want the
+optional browser bridge helpers, add AgentBrowse as well:
+
+```bash
+npm i @mercuryo-ai/magicpay-sdk @mercuryo-ai/agentbrowse
+```
 
 ## Quick Start
+
+This example shows the primary root-SDK path. It assumes you already have a
+MagicPay workflow session and know which protected step you are continuing.
 
 ```ts
 import { createMagicPayClient } from '@mercuryo-ai/magicpay-sdk';
@@ -96,7 +123,7 @@ if (!claim.success) {
 console.log(claim.result.secret.values);
 ```
 
-This is the normal flow:
+The normal flow is:
 
 1. fetch the catalog for the current host
 2. create one approval request for the exact fields you need
@@ -104,13 +131,25 @@ This is the normal flow:
 4. claim the one-time payload
 5. hand the payload to your runtime
 
+## What Happens Next
+
+After the claim succeeds, your runtime decides what to do with the values:
+
+- fill a protected browser form;
+- authenticate to an external API;
+- hand the payload to another tool;
+- continue a larger workflow session.
+
 ## Continue Reading
 
-- [Docs Index](./docs/README.md)
-- [Getting Started](./docs/getting-started.md)
-- [Integration Modes](./docs/integration-modes.md)
-- [API Reference](./docs/api-reference.md)
-- [Error Reference](./docs/error-reference.md)
-- [Testing Guide](./docs/testing.md)
-- [Examples Index](./docs/examples.md)
-- [Glossary](./docs/glossary.md)
+- Start with [Getting Started](./docs/getting-started.md) for the first root
+  integration.
+- Read [Integration Modes](./docs/integration-modes.md) if you need help
+  choosing between the root SDK, pure helpers, and the optional AgentBrowse
+  bridge.
+- Use [API Reference](./docs/api-reference.md) and
+  [Error Reference](./docs/error-reference.md) as lookup documents while
+  integrating.
+- Use [Examples Index](./docs/examples.md) for runnable snippets.
+- Use [Glossary](./docs/glossary.md) when terms like `storedSecretRef`,
+  `fillRef`, or `scopeRef` are still new.

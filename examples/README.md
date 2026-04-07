@@ -24,5 +24,6 @@ Before you run or adapt them, provide your own:
 - [`claim-external-api.ts`](./claim-external-api.ts)
 - [`testing-fetch.ts`](./testing-fetch.ts)
 
-The package frontdoor stays at [README.md](../README.md), and the docs index is
-[docs/README.md](../docs/README.md).
+Start with [`request-poll-claim.ts`](./request-poll-claim.ts) for the default
+root-SDK flow. Use [`agentbrowse-bridge.ts`](./agentbrowse-bridge.ts) only when
+your runtime already has AgentBrowse observed forms.

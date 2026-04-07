@@ -2,6 +2,9 @@
 
 This document is the lookup reference for the public MagicPay SDK API.
 
+If you are new to the package, start with [Getting Started](./getting-started.md)
+before using this page as a lookup document.
+
 ## API Base URL
 
 ```text
@@ -17,7 +20,7 @@ Create your API key in the MagicPay control plane:
 | --- | --- |
 | `@mercuryo-ai/magicpay-sdk` | `createMagicPayClient(...)`, gateway helpers, public runtime types |
 | `@mercuryo-ai/magicpay-sdk/core` | Pure request, session, and catalog helpers |
-| `@mercuryo-ai/magicpay-sdk/agentbrowse` | AgentBrowse bridge helpers for observed forms and protected-fill preparation |
+| `@mercuryo-ai/magicpay-sdk/agentbrowse` | Optional bridge helpers for runtimes that already use AgentBrowse observed forms |
 | `@mercuryo-ai/magicpay-sdk/gateway` | Gateway config and transport-error helpers |
 | `@mercuryo-ai/magicpay-sdk/session-client` | Lower-level session transport helpers |
 | `@mercuryo-ai/magicpay-sdk/session-flow` | Session-outcome builders and classifiers |
@@ -104,7 +107,7 @@ Important pure helpers:
 
 ## `@mercuryo-ai/magicpay-sdk/agentbrowse`
 
-Important bridge helpers:
+Important optional bridge helpers:
 
 | Helper | Purpose |
 | --- | --- |
