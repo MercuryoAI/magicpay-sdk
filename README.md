@@ -1,7 +1,9 @@
 # @mercuryo-ai/magicpay-sdk
 
-MagicPay SDK is the TypeScript and Node SDK for requesting, approving, and
-claiming stored-secret values for one protected step in a MagicPay workflow.
+[![npm version](https://img.shields.io/npm/v/@mercuryo-ai/magicpay-sdk)](https://www.npmjs.com/package/@mercuryo-ai/magicpay-sdk) [![License](https://img.shields.io/badge/license-proprietary-red.svg)](LICENSE.md) [![Node.js >= 18](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](https://nodejs.org)
+
+TypeScript SDK for requesting, approving, and claiming stored secrets in
+MagicPay workflows.
 
 Use it when your application, worker, agent runtime, or MCP tool needs to:
 
