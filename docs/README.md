@@ -1,27 +1,36 @@
 # MagicPay SDK Docs
 
 This docs set is for integrators using `@mercuryo-ai/magicpay-sdk` from a
-trusted Node or TypeScript runtime to request and claim stored secrets for a
-protected step.
+trusted Node or TypeScript runtime.
+
+The standard runtime flow is:
+
+1. read `profile.facts()` when open reusable data is enough;
+2. call `data.resolve(...)`, then `data.waitForResult(...)`, when the runtime
+   needs protected or mixed-value form data;
+3. call `actions.run(...)`, then `actions.waitForResult(...)`, when the
+   runtime needs a protected action result.
 
 Use this route map:
 
 - [Getting Started](./getting-started.md)
-  Tutorial for the first catalog -> request -> poll -> claim flow.
+  Tutorial for the first
+  `profile.facts -> data.resolve -> data.waitForResult -> actions.run -> actions.waitForResult`
+  flow.
 - [Integration Modes](./integration-modes.md)
   Explanation of the root SDK, pure helpers, and the optional AgentBrowse
   bridge.
 - [API Reference](./api-reference.md)
   Lookup reference for the public entrypoints and client methods.
 - [Error Reference](./error-reference.md)
-  Lookup reference for failure kinds and error helpers.
+  Lookup reference for result reasons, request waiting, and bridge failures.
 - [Examples Index](./examples.md)
-  Focused integration recipes you can adapt.
+  Focused integration notes and bridge examples.
 - [Testing Guide](./testing.md)
-  How to run deterministic transport tests with `fetchImpl`.
+  How to run deterministic tests by swapping in your own `fetchImpl`.
 - [Glossary](./glossary.md)
-  Definitions for MagicPay terms such as `storedSecretRef`, `fillRef`, and
-  `scopeRef`.
+  Definitions for terms such as `profile fact`, `vault item`, `request`,
+  `request artifact`, and bridge refs.
 
 If you are new to the package, start at the
 [package README](../README.md) first.

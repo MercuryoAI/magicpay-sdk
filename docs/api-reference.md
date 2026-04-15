@@ -11,21 +11,20 @@ before using this page as a lookup document.
 https://agents-api.mercuryo.io/functions/v1/api
 ```
 
-Create your API key in the MagicPay control plane:
+Create your API key in the MagicPay dashboard:
 [`agents.mercuryo.io/signup`](https://agents.mercuryo.io/signup)
 
 ## Entrypoints
 
-| Entrypoint | Surface |
+| Entrypoint | What it provides |
 | --- | --- |
-| `@mercuryo-ai/magicpay-sdk` | `createMagicPayClient(...)`, gateway helpers, public runtime types |
-| `@mercuryo-ai/magicpay-sdk/core` | Pure request, session, and catalog helpers |
+| `@mercuryo-ai/magicpay-sdk` | `createMagicPayClient(...)`, public runtime types, and the main client |
+| `@mercuryo-ai/magicpay-sdk/core` | Lower-level pure request/session helpers |
 | `@mercuryo-ai/magicpay-sdk/agentbrowse` | Optional bridge helpers for runtimes that already use AgentBrowse observed forms |
-| `@mercuryo-ai/magicpay-sdk/gateway` | Gateway config and transport-error helpers |
-| `@mercuryo-ai/magicpay-sdk/session-client` | Lower-level session transport helpers |
-| `@mercuryo-ai/magicpay-sdk/session-flow` | Session-outcome builders and classifiers |
-| `@mercuryo-ai/magicpay-sdk/request-flow` | Session request-state classifiers |
-| `@mercuryo-ai/magicpay-sdk/secret-flow` | Lower-level secret-request transport and pure flow helpers |
+| `@mercuryo-ai/magicpay-sdk/gateway` | Gateway config and HTTP error helpers |
+| `@mercuryo-ai/magicpay-sdk/session-client` | Lower-level helpers for session and request HTTP calls |
+| `@mercuryo-ai/magicpay-sdk/session-flow` | Session-outcome builders and state classifiers |
+| `@mercuryo-ai/magicpay-sdk/request-flow` | Request-state classifiers |
 
 ## `createMagicPayClient(...)`
 
@@ -39,59 +38,129 @@ createMagicPayClient({
 })
 ```
 
-`fetchImpl` lets you replace network transport in tests or in a custom runtime.
+`fetchImpl` lets you swap in a different `fetch` implementation — useful for
+tests and for runtimes that route HTTP through a custom client.
 
 ## `client.sessions`
 
 | Method | Purpose |
 | --- | --- |
-| `create(input, options?)` | Create a remote session |
-| `get(sessionId, options?)` | Fetch the raw remote session envelope |
-| `getState(sessionId, options?)` | Fetch and immediately project the envelope into `RemoteSessionState` |
-| `describe(session)` | Project an already-fetched session envelope into `RemoteSessionState` |
-| `completeWithOutcome(sessionId, input, options?)` | Complete the remote session with a final outcome |
+| `create(input, options?)` | Create a remote workflow session |
+| `get(sessionId, options?)` | Fetch the raw session object from the server |
+| `getState(sessionId, options?)` | Fetch the session and project it into `RemoteSessionState` |
+| `describe(session)` | Project an already-fetched session into `RemoteSessionState` |
+| `completeWithOutcome(sessionId, input, options?)` | Close the session with a final outcome |
 
-## `client.secrets`
+`client.sessions.create(...)` always creates a universal workflow session.
+Browser runtimes can optionally attach:
+
+- `browser.sessionId` to bind the session to a live browser runtime
+- `browser.run` and `browser.step` to preserve local browser execution metadata
+
+If the `browser` block is omitted, the session remains API/headless-only.
+
+### Session Lifecycle
+
+A workflow session lives on the MagicPay server and has three states:
+
+1. **Open** — created via `create(...)`, accepts `data.resolve(...)` and
+   `actions.run(...)` calls. Multiple requests can run inside one session.
+2. **Completed** — closed via `completeWithOutcome(...)` with a terminal
+   outcome (`success`, `failure`, `abandoned`, etc.). No new requests
+   accepted.
+3. **Stopped** — terminated mid-flow (by the user, by a trust rule, or by
+   the backend). In-flight `waitForResult(...)` calls resolve to
+   `{ ok: false, reason: 'canceled', ... }` with `session_stop` details.
+
+Rules of thumb:
+
+- Create one session per logical task. Multiple related requests share
+  the same session.
+- Always call `completeWithOutcome(...)` when the task finishes — success
+  or failure. Uncompleted sessions stay open until the server-side TTL
+  expires; pending `waitForResult(...)` calls in other processes will hang
+  until then or until the session is stopped.
+- A session does not need a closing call for API-only flows if your
+  runtime exits cleanly — the backend cleans up eventually — but
+  completing explicitly keeps telemetry accurate and frees resources
+  sooner.
+- `canceled` on a `waitForResult(...)` with `session_stop` details means
+  the session was terminated; do not retry the same request inside the
+  same session.
+
+## `client.profile`
 
 | Method | Purpose |
 | --- | --- |
-| `fetchCatalog(sessionId, urlOrHost, options?)` | Load the stored-secret catalog for one host |
-| `createRequest(input, options?)` | Create one approval request for one protected step |
-| `poll(sessionId, requestId, options?)` | Fetch the latest request snapshot once |
-| `pollUntil(sessionId, requestId, options?)` | Poll until a configured stop condition or transport failure |
-| `claim(sessionId, requestId, options?)` | Claim the one-time payload with an auto-generated claim ID |
-| `claim(sessionId, requestId, claimId, options?)` | Claim the one-time payload with your own claim ID |
+| `facts(options?)` | Read profile data (name, email, etc.) without requiring approval |
 
-## `pollUntil(...)` Options
+`client.profile.facts()` is the broad open-data read model. It does not accept
+observed browser targets and it does not decide which fact belongs to which
+current input. Use the browser-runtime `resolve-fields` helper when you need a
+live observed-target decision; that helper returns `matched`, `ambiguous`, or
+`no_match` per target.
+
+## `client.data`
+
+| Method | Purpose |
+| --- | --- |
+| `resolve(sessionId, input, options?)` | Create a data-request handle for the current session |
+| `waitForResult(sessionId, requestId, options?)` | Wait for or resume the final data result |
+
+## `client.actions`
+
+| Method | Purpose |
+| --- | --- |
+| `run(sessionId, input, options?)` | Create an action-request handle for the current session |
+| `waitForResult(sessionId, requestId, options?)` | Wait for or resume the final action result |
+| `confirm(sessionId, input, options?)` | Convenience helper that creates and waits for an explicit confirmation action |
+
+## Request Handles
+
+`data.resolve(...)` and `actions.run(...)` return a `MagicPayRequestHandle`
+with:
+
+- `requestId`
+- `sessionId`
+- `status`
+- `resolutionPath`
+- optional `itemRef`
+
+For idempotent retries, provide your own stable `clientRequestId` inside the
+`input` object passed to `data.resolve(...)` or `actions.run(...)`.
+
+## Client Request Options
 
 | Option | Meaning |
 | --- | --- |
-| `stopWhen` | Stop on `fulfilled` or on any `terminal` status |
-| `timeoutMs` | Maximum polling window |
-| `intervalMs` | Initial polling interval |
-| `maxIntervalMs` | Upper bound for the polling interval |
-| `backoffMultiplier` | Multiplier for interval growth |
+| `timeoutMs` | Maximum local waiting window before the SDK returns `reason: "timeout"` |
 | `signal` | Abort signal for caller-driven cancellation |
-| `onAttempt` | Callback for each poll attempt |
 
 Default profile:
 
 - timeout: `180_000` ms
-- initial interval: `10_000` ms
-- max interval: `30_000` ms
-- backoff multiplier: `1.2`
 
-## `nextAction` Values
+Bridge-only metadata such as `pageRef`, `fillRef`, and `scopeRef` belongs on
+the `input.bridge` field for `data.resolve(...)` or `actions.run(...)`, not in
+the request-options object.
 
-`describeSecretRequestStatus(...)` and `pollUntil(...)` return a status contract
-with `nextAction` values that help orchestration layers branch correctly.
+Those fields are optional and only belong to browser-driven integrations.
 
-| `nextAction` | Meaning |
-| --- | --- |
-| `poll-secret` | Approval is still pending. |
-| `fill-secret` | The request is fulfilled and the payload can be claimed. |
-| `ask-user` | Human approval or recovery is required. |
-| `request-secret` | Create a new request instead of continuing the current one. |
+## Root Result Model
+
+`data.waitForResult(...)`, `actions.waitForResult(...)`, and
+`actions.confirm(...)` return one of two shapes:
+
+- `{ ok: true, ... }` when the SDK already has the final values or action result;
+- `{ ok: false, reason: "denied" | "expired" | "failed" | "canceled" | "timeout", ... }`
+  when the request did not succeed.
+
+The root SDK hides:
+
+- request creation through `resolve(...)` / `run(...)`;
+- waiting and polling through `waitForResult(...)`;
+- result retrieval;
+- `session_stop` handling and cancellation propagation.
 
 ## `@mercuryo-ai/magicpay-sdk/core`
 
@@ -99,11 +168,11 @@ Important pure helpers:
 
 | Helper | Purpose |
 | --- | --- |
-| `describeSecretRequestStatus(...)` | Project request status into orchestration-friendly state |
-| `evaluateSecretRequestForFill(...)` | Check whether a fulfilled request still matches the observed fill context |
-| `resolveSecretCatalogContext(...)` | Resolve the host-specific catalog entry for a URL or host |
-| `buildCreateRemoteSessionInput(...)` | Build session-create input from higher-level state |
-| `buildCompleteRemoteSessionInput(...)` | Build session-completion input from higher-level state |
+| Request/session classifiers | Inspect lower-level response objects without the root client |
+| Catalog and bridge helpers | Expose direct host and observed-form logic for runtimes that own their own HTTP layer |
+| Session-state builders | Build session create/complete request bodies from higher-level state |
+
+Use this subpath only when the root client is too high-level for your stack.
 
 ## `@mercuryo-ai/magicpay-sdk/agentbrowse`
 
@@ -111,18 +180,18 @@ Important optional bridge helpers:
 
 | Helper | Purpose |
 | --- | --- |
-| `enrichObservedFormsForUrl(...)` | Attach stored-secret candidates to observed forms for a host |
-| `buildRequestInputForObservedForm(...)` | Convert one observed form into MagicPay request input |
-| `prepareProtectedFillFromClaim(...)` | Convert a fulfilled claim into AgentBrowse protected-fill input |
+| `enrichObservedFormsForUrl(...)` | Attach candidate inventory metadata to observed forms for a host |
+| `buildDataResolveInputForObservedForm(...)` | Convert one observed form into `data.resolve(...)` input |
+| `prepareProtectedFillFromValues(...)` | Convert a values artifact into AgentBrowse protected-fill input |
 
-Failure kinds for `buildRequestInputForObservedForm(...)` are documented in
+Failure kinds for `buildDataResolveInputForObservedForm(...)` are documented in
 [Error Reference](./error-reference.md).
 
 ## Gateway Error Helpers
 
 | Helper | Purpose |
 | --- | --- |
-| `MagicPayRequestError` | Error class for transport or backend request failures |
-| `getMagicPayErrorCode(...)` | Normalize MagicPay error codes from a thrown error or response payload |
+| `MagicPayRequestError` | Error class for network or backend request failures |
+| `getMagicPayErrorCode(...)` | Normalize MagicPay error codes from a thrown error or response body |
 | `getMagicPayErrorMessage(...)` | Normalize a readable error message |
-| `isMagicPayRequestErrorStatus(...)` | Check whether an HTTP status belongs to the SDK error contract |
+| `isMagicPayRequestErrorStatus(...)` | Check whether an HTTP status is one the SDK treats as a request error |

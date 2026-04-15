@@ -1,28 +1,33 @@
 # Getting Started
 
-Use this guide when you want to complete the first MagicPay secret-request flow
-from your own runtime.
+Use this guide when you want the first root-SDK integration from your own
+runtime.
 
-This guide is for the primary root-SDK path. It assumes your runtime already
-knows which protected step it is continuing.
+The standard flow is:
+
+1. create the client;
+2. create or load a workflow session;
+3. read `profile.facts()` for reusable open data;
+4. call `data.resolve(...)` and `data.waitForResult(...)` for form data;
+5. call `actions.run(...)` and `actions.waitForResult(...)` for protected
+   actions when the flow needs them.
 
 ## Before You Start
 
 You need:
 
-- Node 18 or newer
+- Node 18 or newer;
 - a MagicPay API key from
-  [`agents.mercuryo.io/signup`](https://agents.mercuryo.io/signup)
-- a `sessionId` that represents the workflow session you want to continue
-- the current page URL or host for the protected step
-- a `storedSecretRef` that exists in the host catalog
+  [`agents.mercuryo.io/signup`](https://agents.mercuryo.io/signup);
+- page or task context that your runtime already understands.
 
-If terms such as `storedSecretRef` or `fillRef` are new, open the
-[Glossary](./glossary.md) first.
+You can either:
 
-If your runtime does not build request input on its own and instead starts from
-observed browser forms, read [Integration Modes](./integration-modes.md) before
-you continue.
+- create a new session through `client.sessions.create(...)`; or
+- reuse an existing `sessionId` created elsewhere in your runtime.
+
+If your runtime starts from observed browser forms rather than explicit request
+input, read [Integration Modes](./integration-modes.md) before you continue.
 
 ## 1. Install The SDK
 
@@ -43,101 +48,152 @@ const client = createMagicPayClient({
 });
 ```
 
-`createMagicPayClient(...)` gives you one typed client for both session helpers
-and secret-request helpers.
+`createMagicPayClient(...)` gives you one typed client for session helpers,
+profile facts, data resolution, and actions.
 
-## 3. Load The Host Catalog
+## 3. Create Or Load A Session
 
-Fetch the stored-secret catalog for the current protected step.
+For backend jobs, workers, MCP tools, and API-only flows, create a regular
+session and leave browser-specific fields out of the request body.
 
 ```ts
-const sessionId = 'sess_123';
-const pageUrl = 'https://checkout.airline.example/payment';
+const session = await client.sessions.create({
+  description: 'Renew API usage access',
+  merchantName: 'ChatGPT',
+  context: {
+    url: 'https://api.openai.com/v1/responses',
+    task: 'call provider api with resolved credentials',
+  },
+  metadata: {
+    source: 'backend-worker',
+  },
+});
 
-const catalog = await client.secrets.fetchCatalog(sessionId, pageUrl);
+const sessionId = session.session.id;
 ```
 
-The catalog tells you which `storedSecretRef` values are available for the host.
-It keeps the request narrow: one host, one protected step, one compatible
-stored secret.
+If you already have a `sessionId`, reuse it and skip this step.
 
-## 4. Create One Secret Request
+Browser runtimes can also attach an optional `browser` block with
+`sessionId`, `run`, and `step`. Backend and API-only flows leave that block
+out.
 
-Create one approval request for the exact stored secret and field set you need.
+## 4. Read Profile Facts
+
+Use `profile.facts()` when open reusable data is enough and you do not need a
+protected request yet.
 
 ```ts
-const created = await client.secrets.createRequest({
+const facts = await client.profile.facts();
+console.log(facts);
+```
+
+Think of `profile.facts()` as instant access to public user data (name, email,
+locale) that MagicPay can provide without requiring approval.
+
+`profile.facts()` is the broad read model for reusable open data. It is not a
+page-matching helper for live browser targets. If your runtime already has
+observed target refs on the current page, use `magicpay resolve-fields` or
+`magicpay-agent resolve-fields` instead:
+
+- `matched` means one confident open value is ready for that target now;
+- `ambiguous` means multiple candidates still compete;
+- `no_match` means MagicPay could not pick an applicable value safely.
+
+## 5. Resolve Data For A Protected Step
+
+Use `data.resolve(...)` when the runtime needs actual field values for the
+current protected page or form.
+
+```ts
+const loginHandle = await client.data.resolve(
   sessionId,
-  clientRequestId: 'checkout-card-1',
-  fillRef: 'checkout_card',
-  purpose: 'payment_card',
-  merchantName: 'Airline Example',
-  page: {
-    url: pageUrl,
-    title: 'Payment',
-  },
-  secretHint: {
-    storedSecretRef: 'secret_card_primary',
-    kind: 'payment_card',
-    host: catalog.host,
-    scopeRef: 'payment_form',
-    fields: ['pan', 'exp_month', 'exp_year', 'cvv'],
-  },
-});
+  {
+    clientRequestId: 'chatgpt-login-request-1',
+    fields: [{ key: 'username' }, { key: 'password' }],
+    context: {
+      url: 'https://chatgpt.com/auth/login',
+      pageTitle: 'Login',
+      formPurpose: 'login',
+      merchantName: 'ChatGPT',
+    },
+    saveHint: {
+      category: 'login',
+      displayName: 'ChatGPT Login',
+      schemaRef: 'login.basic',
+    },
+  }
+);
+
+const loginResult = await client.data.waitForResult(sessionId, loginHandle);
+
+if (!loginResult.ok) {
+  throw new Error(loginResult.reason);
+}
+
+if (loginResult.artifact.kind !== 'values') {
+  throw new Error(`Expected values, received ${loginResult.artifact.kind}`);
+}
+
+console.log(loginResult.artifact.values);
 ```
 
-The important contract here is narrow scope: one request should describe one
-protected fill step, not an entire session.
+Important root-SDK behavior:
 
-## 5. Poll Until The Request Is Ready
+- **`clientRequestId` makes retries safe.** Bring your own stable id (a
+  UUID persisted with your task state, or a deterministic
+  `"checkout-${taskId}-login"` string). Retrying with the same id returns
+  the same `requestId` instead of duplicating the request.
+- **Two-step resolve / wait.** `data.resolve(...)` creates the request
+  handle; `data.waitForResult(...)` waits for the result. Splitting them
+  lets another process resume waiting on the same `requestId` — useful
+  when your runtime reconnects, shards, or runs in a short-lived function.
+- **Bridge metadata is optional.** `input.bridge` carries browser-only
+  identifiers (`pageRef`, `fillRef`, `scopeRef`). API-only flows omit it.
+
+## 6. Run A Protected Action
+
+Use `actions.run(...)` when the task is not "give me field values" but "perform
+or confirm a protected action".
 
 ```ts
-const ready = await client.secrets.pollUntil(sessionId, created.requestId, {
-  stopWhen: 'fulfilled',
+const actionHandle = await client.actions.run(sessionId, {
+  clientRequestId: 'checkout-confirm-request-1',
+  capability: 'confirm',
+  display: {
+    summary: 'Approve the final checkout step',
+  },
+  context: {
+    url: 'https://checkout.example.com/review',
+    pageTitle: 'Review order',
+    merchantName: 'Example Store',
+  },
 });
 
-if (!ready.success) {
-  throw new Error(ready.reason);
-}
-if (ready.result.snapshot.status !== 'fulfilled') {
-  throw new Error(`Request ended as ${ready.result.snapshot.status}`);
+const actionResult = await client.actions.waitForResult(sessionId, actionHandle);
+
+if (!actionResult.ok) {
+  throw new Error(actionResult.reason);
 }
 ```
 
-`pollUntil(...)` returns a terminal outcome or a transport failure. The
-`nextAction` contract is documented in [API Reference](./api-reference.md).
+The root SDK hides the same waiting and artifact mechanics here too. The
+runtime creates the action request, then waits for the final result without
+manually coordinating request polling.
 
-## 6. Claim The One-Time Payload
-
-```ts
-const claim = await client.secrets.claim(sessionId, created.requestId);
-if (!claim.success) {
-  throw new Error(claim.reason);
-}
-
-console.log(claim.result.secret.values);
-```
-
-Claim only after the request is fulfilled. A claimed secret payload is
-single-use.
-
-## 7. Hand The Payload To Your Runtime
+## 7. Continue In Your Runtime
 
 At this point the SDK has done its part. Your runtime decides what happens
 next:
 
-- fill a protected browser form
-- authenticate to an external API
-- hand the claimed values to an MCP tool
-- continue a broader orchestration flow
-
-For concrete patterns, open [Examples Index](./examples.md).
+- fill the browser form with the resolved values;
+- continue a provider or wallet flow after an action result;
+- call an external API with the resolved values or action artifact;
+- resume a broader orchestration loop.
 
 ## Optional Browser Bridge
 
-Most integrations stop here.
-
 If your runtime already uses `@mercuryo-ai/agentbrowse` and starts from
-observed protected forms, the optional bridge is documented in
+observed browser forms, the optional bridge is documented in
 [Integration Modes](./integration-modes.md) and
 [`examples/agentbrowse-bridge.ts`](../examples/agentbrowse-bridge.ts).

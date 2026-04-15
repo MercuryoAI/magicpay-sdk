@@ -10,27 +10,40 @@ import {
   type MagicPayGatewayConfig,
 } from '@mercuryo-ai/magicpay-sdk';
 import {
-  buildRequestInputForObservedForm,
-  enrichObservedFormsForUrl,
-  prepareProtectedFillFromClaim,
+  buildObservedFormCandidateItems,
+  prepareProtectedFillFromValues,
 } from '@mercuryo-ai/magicpay-sdk/agentbrowse';
+import { fetchVaultCatalog } from '@mercuryo-ai/magicpay-sdk/core';
 
 export interface AgentbrowseBridgeParams {
   gateway: MagicPayGatewayConfig;
   browserSession: BrowserSessionState;
   sessionId: string;
   merchantName: string;
-  storedSecretRef: string;
   observeGoal: string;
+  itemRef?: string;
 }
 
 function asErrorMessage(value: unknown, fallback: string): string {
   return typeof value === 'string' && value.length > 0 ? value : fallback;
 }
 
-export async function completeObservedFormWithMagicPay(
-  params: AgentbrowseBridgeParams
-) {
+function toRequestedField(form: ProtectedFillForm['fields'][number]) {
+  return {
+    key: form.fieldKey,
+    required: form.required !== false,
+    ...(form.label ? { label: form.label } : {}),
+    ...(
+      form.fieldKey === 'password' ||
+      form.fieldKey === 'cvv' ||
+      form.fieldKey === 'pan'
+        ? { type: 'secret' as const }
+        : {}
+    ),
+  };
+}
+
+export async function completeObservedFormWithMagicPay(params: AgentbrowseBridgeParams) {
   const client = createMagicPayClient({
     gateway: params.gateway,
   });
@@ -41,61 +54,55 @@ export async function completeObservedFormWithMagicPay(
   }
 
   const observedForms = observation.fillableForms as unknown as ProtectedFillForm[];
-  const catalog = await client.secrets.fetchCatalog(params.sessionId, observation.url);
-  const enrichedForms = enrichObservedFormsForUrl(
-    observedForms,
-    { [catalog.host]: catalog },
-    observation.url
-  );
   const form =
-    enrichedForms.find((candidate) => candidate.purpose === 'login') ??
-    enrichedForms[0] ??
-    null;
+    observedForms.find((candidate) => candidate.purpose === 'login') ?? observedForms[0] ?? null;
 
   if (!form) {
     throw new Error('No protected fill form was observed.');
   }
 
-  const requestInput = buildRequestInputForObservedForm({
-    sessionId: params.sessionId,
-    merchantName: params.merchantName,
-    storedSecretRef: params.storedSecretRef,
-    urlOrHost: observation.url,
-    catalog,
-    fillableForm: form,
-    page: {
-      ref: form.pageRef,
+  const vaultCatalog = await fetchVaultCatalog(params.gateway, params.sessionId, observation.url);
+  const candidateItems = buildObservedFormCandidateItems(form, vaultCatalog);
+  const selectedItem =
+    (params.itemRef
+      ? candidateItems.find((candidate) => candidate.itemRef === params.itemRef)
+      : null) ??
+    candidateItems[0] ??
+    null;
+
+  const handle = await client.data.resolve(params.sessionId, {
+    clientRequestId: `${form.fillRef}-resolve`,
+    fields: form.fields.map(toRequestedField),
+    context: {
       url: observation.url,
-      ...(observation.title ? { title: observation.title } : {}),
+      merchantName: params.merchantName,
+      formPurpose: form.purpose,
+      ...(observation.title ? { pageTitle: observation.title } : {}),
     },
+    bridge: {
+      fillRef: form.fillRef,
+      pageRef: form.pageRef,
+      ...(form.scopeRef ? { scopeRef: form.scopeRef } : {}),
+    },
+    ...(selectedItem ? { targetItemRef: selectedItem.itemRef } : {}),
   });
 
-  if (!requestInput.success) {
-    throw new Error(requestInput.reason);
-  }
-
-  const created = await client.secrets.createRequest(requestInput.input);
-  const ready = await client.secrets.pollUntil(params.sessionId, created.requestId, {
-    stopWhen: 'fulfilled',
+  const result = await client.data.waitForResult(params.sessionId, handle, {
+    intervalMs: 1_000,
   });
 
-  if (!ready.success) {
-    throw new Error(ready.reason);
+  if (!result.ok) {
+    throw new Error(result.message ?? result.reason);
   }
-  if (ready.result.snapshot.status !== 'fulfilled') {
-    throw new Error(`Request ended as ${ready.result.snapshot.status}`);
-  }
-
-  const claim = await client.secrets.claim(params.sessionId, created.requestId);
-  if (!claim.success) {
-    throw new Error(claim.reason);
+  if (result.artifact.kind !== 'values') {
+    throw new Error(`MagicPay returned ${result.artifact.kind}, not values.`);
   }
 
-  const prepared = prepareProtectedFillFromClaim({
+  const prepared = prepareProtectedFillFromValues({
     fillableForm: form,
-    catalog,
-    claim: claim.result,
-    request: created.snapshot,
+    catalog: null,
+    protectedValues: result.artifact.values,
+    storedSecretRef: result.itemRef ?? selectedItem?.itemRef ?? null,
   });
 
   const fillResult = await fillProtectedForm({
@@ -138,7 +145,8 @@ export async function completeObservedFormWithMagicPay(
   }
 
   return {
-    claim: claim.result,
+    requestId: result.requestId,
+    itemRef: result.itemRef ?? selectedItem?.itemRef ?? null,
     fillResult,
     submitAction,
   };

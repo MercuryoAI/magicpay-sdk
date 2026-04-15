@@ -13,8 +13,8 @@ import { createMagicPayClient } from '@mercuryo-ai/magicpay-sdk';
 
 const responses = new Map([
   [
-    'GET https://agents-api.mercuryo.io/functions/v1/api/sessions/sess_123/secrets/catalog?host=checkout.airline.example',
-    new Response(JSON.stringify([]), {
+    'GET https://agents-api.mercuryo.io/functions/v1/api/profile/facts',
+    new Response(JSON.stringify({ facts: [] }), {
       status: 200,
       headers: { 'content-type': 'application/json' },
     }),
@@ -37,24 +37,23 @@ const client = createMagicPayClient({
   },
 });
 
-await client.secrets.fetchCatalog('sess_123', 'https://checkout.airline.example/login');
+await client.profile.facts();
 ```
 
 ## What To Test
 
 Target the boundary you own:
 
-- request creation input
-- polling behavior and retry windows
-- claim handling
-- branching on `nextAction`
-- handoff from MagicPay into your browser or API runtime
+- request creation input;
+- waiting behavior and retry windows;
+- timeout and cancellation handling;
+- branching on final `reason` values;
+- handoff from MagicPay into your browser or API runtime.
 
 Use `@mercuryo-ai/magicpay-sdk/core` directly when you want pure unit tests for
-status and catalog logic without any network client at all.
+request/session logic without any network client at all.
 
 ## Example File
 
 The same pattern is packaged as a reusable example in
 [`examples/testing-fetch.ts`](../examples/testing-fetch.ts).
-
