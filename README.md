@@ -6,10 +6,6 @@ TypeScript SDK for MagicPay: read the user's public profile data, resolve
 login/identity/payment form values through approved requests, and run
 protected actions.
 
-For browser runtimes that already have observed target refs, use the CLI or
-browser-runtime `resolve-fields` helper for narrow open-field matching instead
-of trying to match raw `profile.facts()` values in your own prompt or code.
-
 The main client methods are `profile.facts()`,
 `data.resolve(...)` / `data.waitForResult(...)`, and
 `actions.run(...)` / `actions.waitForResult(...)`.
@@ -134,22 +130,18 @@ The flow is always the same shape:
    actions;
 3. pass the returned values or action result into your own runtime step.
 
-### `profile.facts()` vs `resolve-fields`
+### When `profile.facts()` Is Not Enough
 
-Use `profile.facts()` as the broad open-data read model when your runtime needs
-reusable public facts such as name, email, or locale.
+Use `profile.facts()` as the broad open-data read model when your runtime
+needs reusable public facts such as name, email, or locale.
 
-Use `resolve-fields` only in browser or CLI runtimes that already have live
-observed targets and need a per-target decision for the current page. It
-returns one terminal result per target:
-
-- `matched` when one confident candidate is available now;
-- `ambiguous` when multiple candidates still compete;
-- `no_match` when no applicable open value survives matching.
-
-The root SDK does not take raw `profile.facts()` output and perform page-level
-matching for you. That target-by-target decision belongs to the browser-runtime
-`resolve-fields` helper.
+When your runtime is already driving a browser and has observed field refs on
+the current page, deciding which public value fits which observed input is a
+different problem: per-target matching on a live page. That decision belongs
+to the browser-runtime layer above this SDK and should produce one terminal
+outcome per target — `matched`, `ambiguous`, or `no_match` — by combining
+facts and page context. Do not reconstruct that decision from raw
+`profile.facts()` output in your own prompt or code.
 
 ### Why two calls (`resolve` + `waitForResult`)?
 

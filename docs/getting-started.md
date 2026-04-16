@@ -92,13 +92,12 @@ Think of `profile.facts()` as instant access to public user data (name, email,
 locale) that MagicPay can provide without requiring approval.
 
 `profile.facts()` is the broad read model for reusable open data. It is not a
-page-matching helper for live browser targets. If your runtime already has
-observed target refs on the current page, use `magicpay resolve-fields` or
-`magicpay-agent resolve-fields` instead:
-
-- `matched` means one confident open value is ready for that target now;
-- `ambiguous` means multiple candidates still compete;
-- `no_match` means MagicPay could not pick an applicable value safely.
+page-matching helper for live browser targets. If your runtime is already
+driving a browser and has observed target refs on the current page,
+per-target matching on those targets is a separate concern that belongs in
+the browser-runtime layer above this SDK. That layer should return one
+terminal decision per target (`matched`, `ambiguous`, or `no_match`) rather
+than passing raw `profile.facts()` output through the model.
 
 ## 5. Resolve Data For A Protected Step
 

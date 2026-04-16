@@ -96,9 +96,10 @@ Rules of thumb:
 
 `client.profile.facts()` is the broad open-data read model. It does not accept
 observed browser targets and it does not decide which fact belongs to which
-current input. Use the browser-runtime `resolve-fields` helper when you need a
-live observed-target decision; that helper returns `matched`, `ambiguous`, or
-`no_match` per target.
+current input. Per-target matching on a live observed page is a browser-runtime
+concern above this SDK, and that layer should return one terminal decision per
+target (`matched`, `ambiguous`, or `no_match`) rather than matching raw
+`profile.facts()` output in your own code.
 
 ## `client.data`
 
