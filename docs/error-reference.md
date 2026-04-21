@@ -52,16 +52,43 @@ before deciding whether to retry or abandon the flow.
 
 ## 2. Bridge Failure Kinds
 
-`buildDataResolveInputForObservedForm(...)` (from
-`@mercuryo-ai/magicpay-sdk/agentbrowse`) can fail before anything reaches
-the network:
+`buildResolveInput(...)` (from `@mercuryo-ai/magicpay-sdk/agentbrowse`)
+can fail before anything reaches the network:
 
 | Kind | When it happens | What to do |
 | --- | --- | --- |
 | `host_resolution_failed` | The bridge could not resolve a usable host from the page URL, host, or catalog. | Pass a valid page URL or a catalog that includes a host. |
 | `stored_secret_not_available` | The chosen vault-item candidate is not available for the observed form and host. | Refresh the candidate inventory or pick a different vault item. |
 
-## 3. HTTP-Level Errors
+## 3. AgentBrowse Fill Contract
+
+When your runtime composes `match` / `resolve` / `fill` from
+`@mercuryo-ai/agentbrowse` with the SDK's composable helpers, three
+independent failure surfaces can be reached in one call chain:
+
+- **Your resolver adapter's exceptions.** Anything thrown inside
+  `resolver.resolve(...)` or `resolver.fill(...)` propagates. The
+  composing example at
+  [API Reference → Composing with AgentBrowse primitives](./api-reference.md#composing-with-agentbrowse-primitives)
+  uses `throw new Error(result.message ?? result.reason)` so that
+  `MagicPayRequestFailureReason` values (`denied`, `expired`, `failed`,
+  `canceled`, `timeout`) surface as thrown errors on the caller side —
+  the SDK does not re-map them into AgentBrowse failures for you.
+- **Bridge input failures.** `buildResolveInput(...)` returns an
+  `{ success: false, kind }` outcome with the two kinds listed in
+  section 2 — your adapter decides whether to throw or short-circuit.
+- **AgentBrowse contract failures.** `fill(...)` itself can return a
+  typed contract failure when the match result is ambiguous, has no
+  match, or needs a capability your resolver did not implement. The
+  stable `error` codes are `match_no_match`, `match_ambiguous`,
+  `match_resolver_required`, `match_value_unavailable`, and
+  `match_artifact_unavailable`. See the `@mercuryo-ai/agentbrowse`
+  package's own API Reference for the full table.
+
+Branch on the most specific layer first: adapter exceptions, then
+bridge input failures, then the AgentBrowse contract failure codes.
+
+## 4. HTTP-Level Errors
 
 When the SDK cannot talk to the MagicPay service — network failure, auth
 rejection, rate limiting, backend error — methods throw. Catch with the

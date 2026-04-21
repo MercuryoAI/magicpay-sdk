@@ -2,9 +2,10 @@
 
 [![npm version](https://img.shields.io/npm/v/@mercuryo-ai/magicpay-sdk)](https://www.npmjs.com/package/@mercuryo-ai/magicpay-sdk) [![License](https://img.shields.io/badge/license-proprietary-red.svg)](LICENSE.md) [![Node.js >= 18](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](https://nodejs.org)
 
-TypeScript SDK for MagicPay: read the user's public profile data, resolve
-login/identity/payment form values through approved requests, and run
-protected actions.
+TypeScript SDK for MagicPay: a user-approved **vault** for logins, identity,
+payment cards, and wallets, plus a **request flow** your code uses to read
+values from that vault and run protected actions — without the actual
+values ever entering the LLM prompt that orchestrates the work.
 
 The main client methods are `profile.facts()`,
 `data.resolve(...)` / `data.waitForResult(...)`, and
@@ -13,7 +14,8 @@ The main client methods are `profile.facts()`,
 Use it when your application, worker, agent runtime, or MCP tool needs to:
 
 - read the user's public profile data (name, email) without requiring approval;
-- resolve login, identity, wallet, or payment-form data through one request flow;
+- resolve login, identity, wallet, or payment-card values stored in the
+  user's MagicPay vault through one request flow;
 - run protected actions such as confirmation or provider-backed execution;
 - wait for a request to complete without writing your own polling logic;
 - keep request inputs, session helpers, and bridge metadata inside one typed client.
@@ -21,6 +23,11 @@ Use it when your application, worker, agent runtime, or MCP tool needs to:
 The SDK handles communication with the MagicPay service. Browser control,
 approval UX, and the business step that follows a returned value or action
 result stay in your application.
+
+See [Security Model](./docs/security-model.md) for an explicit list of what
+this design protects against and what it does **not** protect against —
+the word "protected" here means "kept out of the LLM's input", not "safe in
+an untrusted runtime". Read it before you assume otherwise.
 
 ## Key Terms
 
@@ -37,6 +44,39 @@ The examples below use a few names that recur across the API:
 - `clientRequestId` — a stable id you choose, so retries stay idempotent.
 - `profile fact` — reusable public user data (name, email, locale) that
   MagicPay can return immediately without approval.
+
+## What MagicPay Can Store And Fill
+
+MagicPay holds user-approved vault items in four fixed categories. Each
+category uses one of five built-in schemas (schemas are defined on the
+server — you do not register new ones from the SDK):
+
+| `category` | `schemaRef` | Canonical `fieldKey` values you can request |
+| --- | --- | --- |
+| `login` | `login.basic` | `username`, `password` |
+| `identity` | `identity.basic` | `full_name`, `date_of_birth`, `email`, `phone`, `address_line1`, `address_line2`, `city`, `state_region`, `postal_code`, `country`, `nationality` |
+| `identity` | `identity.document` | `document_number`, `issuing_country`, `issue_date`, `expiry_date` |
+| `payment_card` | `payment_card.provider` | `cardholder`, `pan`, `exp_month`, `exp_year`, `cvv` |
+| `wallet` | `wallet.default` | `address`, `chain` |
+
+Your `data.resolve(...)` call lists the `fieldKey` values you want and
+(optionally) a `saveHint` so a new approval is filed into the right
+category/schema. MagicPay matches the request against the user's stored
+items, asks them to approve or provide missing values, and returns the
+resolved set.
+
+To inspect what a given user has already stored for a host at runtime —
+before or instead of guessing a `saveHint` — call `fetchVaultCatalog(...)`
+(exported from `@mercuryo-ai/magicpay-sdk/core`). It returns applicable
+items with their `itemRef`, `category`, `schemaRef`, `fieldKeys`,
+`capabilities`, and applicability metadata. See
+[API Reference — Vault Catalog](./docs/api-reference.md#vault-catalog) for
+the signature.
+
+> Field keys above are **what MagicPay can resolve**. The browser-side
+> contract — which of those keys a live form actually accepts — comes from
+> `@mercuryo-ai/agentbrowse`'s `fillableForm.fields`. When you use the
+> optional AgentBrowse bridge, the keys line up automatically.
 
 ## When To Use It
 
@@ -78,8 +118,11 @@ Most integrations use the root package only.
 | `@mercuryo-ai/magicpay-sdk/core` | You want lower-level pure helpers for request/session state without the networked root client. |
 | `@mercuryo-ai/magicpay-sdk/agentbrowse` | You already use `@mercuryo-ai/agentbrowse` and want the optional bridge from observed forms into MagicPay request input. |
 
-If your runtime already starts from observed browser forms and you want the
-optional bridge helpers, add AgentBrowse as well:
+Any agentic browser stack works on the browser side (for example
+[Browser Use](https://github.com/browser-use/browser-use),
+[Magnitude](https://github.com/magnitudedev/browser-agent), or your own
+setup). If you do not already have one and want the observed-forms
+bridge helpers, `@mercuryo-ai/agentbrowse` is one option we also maintain:
 
 ```bash
 npm i @mercuryo-ai/magicpay-sdk @mercuryo-ai/agentbrowse
@@ -201,8 +244,13 @@ API-only flows leave that block out.
 
 For specialized integrations, the SDK also publishes lower-level helpers
 under `@mercuryo-ai/magicpay-sdk/core` and
-`@mercuryo-ai/magicpay-sdk/agentbrowse`. See
-[Integration Modes](./docs/integration-modes.md) if you need either.
+`@mercuryo-ai/magicpay-sdk/agentbrowse`. The AgentBrowse subpath is a
+set of composable helpers (candidate building, request input,
+protected-fill input, open-data matching) designed to compose with
+`@mercuryo-ai/agentbrowse`'s `match` / `resolve` / `fill` primitives.
+See [Integration Modes](./docs/integration-modes.md) and the bridge
+example under [`examples/agentbrowse-bridge.ts`](./examples/agentbrowse-bridge.ts)
+if you need either.
 
 ## Continue Reading
 

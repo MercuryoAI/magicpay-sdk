@@ -31,6 +31,10 @@ Use this route map:
 - [Glossary](./glossary.md)
   Definitions for terms such as `profile fact`, `vault item`, `request`,
   `request artifact`, and bridge refs.
+- [Security Model](./security-model.md)
+  What "protected" means here, what this SDK protects against, and what
+  it does not. Read before assuming the term "protected" covers more
+  than LLM-prompt leakage.
 
 If you are new to the package, start at the
 [package README](../README.md) first.

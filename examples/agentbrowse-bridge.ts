@@ -1,6 +1,8 @@
 import {
-  act,
+  fill,
+  match,
   observe,
+  type AgentbrowseMatchResolver,
   type BrowserSessionState,
   type ProtectedFillForm,
 } from '@mercuryo-ai/agentbrowse';
@@ -8,13 +10,25 @@ import { fillProtectedForm } from '@mercuryo-ai/agentbrowse/protected-fill';
 import {
   createMagicPayClient,
   type MagicPayGatewayConfig,
+  type MagicPayRequestArtifact,
 } from '@mercuryo-ai/magicpay-sdk';
 import {
   buildObservedFormCandidateItems,
-  prepareProtectedFillFromValues,
+  buildObservedFormMatchCandidates,
+  buildResolveInput,
+  prepareProtectedFill,
+  selectObservedFormCandidateItem,
 } from '@mercuryo-ai/magicpay-sdk/agentbrowse';
 import { fetchVaultCatalog } from '@mercuryo-ai/magicpay-sdk/core';
 
+/**
+ * End-to-end bridge example: observe → match → resolve → fill.
+ *
+ * The AgentBrowse primitives own the matching decision and the browser
+ * apply step. A small MagicPay-specific resolver adapter sits between
+ * them, using the composable helpers from
+ * `@mercuryo-ai/magicpay-sdk/agentbrowse` to talk to the SDK.
+ */
 export interface AgentbrowseBridgeParams {
   gateway: MagicPayGatewayConfig;
   browserSession: BrowserSessionState;
@@ -24,29 +38,14 @@ export interface AgentbrowseBridgeParams {
   itemRef?: string;
 }
 
-function asErrorMessage(value: unknown, fallback: string): string {
-  return typeof value === 'string' && value.length > 0 ? value : fallback;
-}
-
-function toRequestedField(form: ProtectedFillForm['fields'][number]) {
-  return {
-    key: form.fieldKey,
-    required: form.required !== false,
-    ...(form.label ? { label: form.label } : {}),
-    ...(
-      form.fieldKey === 'password' ||
-      form.fieldKey === 'cvv' ||
-      form.fieldKey === 'pan'
-        ? { type: 'secret' as const }
-        : {}
-    ),
-  };
+function isValuesArtifact(
+  artifact: MagicPayRequestArtifact
+): artifact is Extract<MagicPayRequestArtifact, { kind: 'values' }> {
+  return artifact.kind === 'values';
 }
 
 export async function completeObservedFormWithMagicPay(params: AgentbrowseBridgeParams) {
-  const client = createMagicPayClient({
-    gateway: params.gateway,
-  });
+  const client = createMagicPayClient({ gateway: params.gateway });
 
   const observation = await observe(params.browserSession, params.observeGoal);
   if (!observation.success || !observation.url || !Array.isArray(observation.fillableForms)) {
@@ -54,100 +53,112 @@ export async function completeObservedFormWithMagicPay(params: AgentbrowseBridge
   }
 
   const observedForms = observation.fillableForms as unknown as ProtectedFillForm[];
-  const form =
+  const fillableForm =
     observedForms.find((candidate) => candidate.purpose === 'login') ?? observedForms[0] ?? null;
-
-  if (!form) {
+  if (!fillableForm) {
     throw new Error('No protected fill form was observed.');
   }
 
   const vaultCatalog = await fetchVaultCatalog(params.gateway, params.sessionId, observation.url);
-  const candidateItems = buildObservedFormCandidateItems(form, vaultCatalog);
-  const selectedItem =
-    (params.itemRef
-      ? candidateItems.find((candidate) => candidate.itemRef === params.itemRef)
-      : null) ??
-    candidateItems[0] ??
-    null;
+  const candidateItems = buildObservedFormCandidateItems(fillableForm, vaultCatalog);
+  const selectedCandidate = selectObservedFormCandidateItem(candidateItems, params.itemRef);
 
-  const handle = await client.data.resolve(params.sessionId, {
-    clientRequestId: `${form.fillRef}-resolve`,
-    fields: form.fields.map(toRequestedField),
-    context: {
-      url: observation.url,
+  // Build a MagicPay-specific resolver adapter. It implements only the
+  // two capabilities this flow needs: `resolve` (fetch the values
+  // artifact through MagicPay) and `fill` (apply the values through
+  // the protected-fill path). AgentBrowse itself has no knowledge of
+  // MagicPay — everything vendor-specific is contained here.
+  const magicpayResolver: AgentbrowseMatchResolver = {
+    async resolve(plan) {
+      if (!('fillRef' in plan)) {
+        throw new Error('This resolver only handles grouped (form-scoped) plans.');
+      }
+
+      const input = buildResolveInput({
+        clientRequestId: `${fillableForm.fillRef}-resolve`,
+        merchantName: params.merchantName,
+        fillableForm,
+        ...(plan.itemRef ? { targetItemRef: plan.itemRef } : {}),
+        urlOrHost: observation.url,
+        page: {
+          ...(observation.url ? { url: observation.url } : {}),
+          ...(observation.title ? { title: observation.title } : {}),
+        },
+      });
+      if (!input.success) {
+        throw new Error(input.reason);
+      }
+
+      const handle = await client.data.resolve(params.sessionId, input.input);
+      const result = await client.data.waitForResult(params.sessionId, handle, {
+        intervalMs: 1_000,
+      });
+      if (!result.ok) {
+        throw new Error(result.message ?? result.reason);
+      }
+      if (!isValuesArtifact(result.artifact)) {
+        throw new Error(`MagicPay returned a ${result.artifact.kind} artifact; expected values.`);
+      }
+
+      return {
+        kind: 'artifact',
+        artifact: result.artifact,
+        requestId: result.requestId,
+        resolutionPath: result.resolutionPath,
+        ...(result.itemRef ? { itemRef: result.itemRef } : {}),
+        claimedAt: new Date().toISOString(),
+      };
+    },
+    async fill(session, form, ready) {
+      if (
+        !ready.artifact ||
+        typeof ready.artifact !== 'object' ||
+        (ready.artifact as { kind?: unknown }).kind !== 'values'
+      ) {
+        return {
+          success: false,
+          outcomeType: 'unsupported',
+          reason: 'Artifact is not a values artifact.',
+        };
+      }
+
+      const artifact = ready.artifact as Extract<MagicPayRequestArtifact, { kind: 'values' }>;
+      const prepared = prepareProtectedFill({
+        fillableForm: form,
+        catalog: null,
+        protectedValues: artifact.values,
+        storedSecretRef: ready.itemRef ?? null,
+      });
+
+      return fillProtectedForm({
+        session,
+        fillableForm: prepared.fillableForm,
+        protectedValues: prepared.protectedValues,
+        ...(prepared.fieldPolicies ? { fieldPolicies: prepared.fieldPolicies } : {}),
+      });
+    },
+  };
+
+  // match — AgentBrowse picks the grouped candidate (the helpers above
+  // shape it) and returns a needs_resolution_group plan.
+  const matched = await match(fillableForm, {
+    from: buildObservedFormMatchCandidates({
+      fillableForm,
       merchantName: params.merchantName,
-      formPurpose: form.purpose,
-      ...(observation.title ? { pageTitle: observation.title } : {}),
-    },
-    bridge: {
-      fillRef: form.fillRef,
-      pageRef: form.pageRef,
-      ...(form.scopeRef ? { scopeRef: form.scopeRef } : {}),
-    },
-    ...(selectedItem ? { targetItemRef: selectedItem.itemRef } : {}),
+      selectedCandidate,
+      ...(params.itemRef ? { explicitItemRef: params.itemRef } : {}),
+    }),
   });
 
-  const result = await client.data.waitForResult(params.sessionId, handle, {
-    intervalMs: 1_000,
+  // fill — resolves through magicpayResolver.resolve (triggers the
+  // approval round-trip) and then applies through magicpayResolver.fill
+  // (which delegates to fillProtectedForm).
+  const result = await fill(params.browserSession, fillableForm, matched, {
+    resolver: magicpayResolver,
   });
-
-  if (!result.ok) {
-    throw new Error(result.message ?? result.reason);
-  }
-  if (result.artifact.kind !== 'values') {
-    throw new Error(`MagicPay returned ${result.artifact.kind}, not values.`);
-  }
-
-  const prepared = prepareProtectedFillFromValues({
-    fillableForm: form,
-    catalog: null,
-    protectedValues: result.artifact.values,
-    storedSecretRef: result.itemRef ?? selectedItem?.itemRef ?? null,
-  });
-
-  const fillResult = await fillProtectedForm({
-    session: params.browserSession,
-    fillableForm: prepared.fillableForm,
-    protectedValues: prepared.protectedValues,
-    fieldPolicies: prepared.fieldPolicies,
-  });
-
-  if (!fillResult.success) {
-    throw new Error(fillResult.reason);
-  }
-
-  const submitObservation = await observe(
-    params.browserSession,
-    'Find the single actionable submit target that sends the filled form.'
-  );
-  if (!submitObservation.success || submitObservation.targets.length === 0) {
-    throw new Error(
-      asErrorMessage(
-        submitObservation.reason ?? submitObservation.message,
-        'AgentBrowse did not return a submit target.'
-      )
-    );
-  }
-
-  const submitTarget = submitObservation.targets[0];
-  if (!submitTarget?.ref || submitTarget.capability !== 'actionable') {
-    throw new Error('AgentBrowse did not return an actionable submit target.');
-  }
-
-  const submitAction = await act(params.browserSession, submitTarget.ref, 'click');
-  if (!submitAction.success) {
-    throw new Error(
-      asErrorMessage(
-        submitAction.reason ?? submitAction.message,
-        'AgentBrowse could not click the submit target.'
-      )
-    );
-  }
 
   return {
-    requestId: result.requestId,
-    itemRef: result.itemRef ?? selectedItem?.itemRef ?? null,
-    fillResult,
-    submitAction,
+    result,
+    selectedItemRef: selectedCandidate?.itemRef ?? null,
   };
 }

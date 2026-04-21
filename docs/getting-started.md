@@ -180,7 +180,46 @@ The root SDK hides the same waiting and artifact mechanics here too. The
 runtime creates the action request, then waits for the final result without
 manually coordinating request polling.
 
-## 7. Continue In Your Runtime
+## 7. Handle Failures
+
+Both `data.waitForResult(...)` and `actions.waitForResult(...)` can return
+`{ ok: false, reason }`. This is a normal branch, not an exception.
+
+Five reasons are possible:
+
+- `denied` — the user or a trust rule rejected the request;
+- `expired` — the server-side TTL elapsed before approval; create a fresh
+  request if the step still matters;
+- `timeout` — the local wait window (`timeoutMs`) elapsed; the server
+  request may still be alive — call `waitForResult(...)` again with the
+  same `requestId` to resume;
+- `canceled` — the caller aborted or the session stopped server-side; the
+  result carries `code` and `message` explaining why;
+- `failed` — terminal failure; check `errorCode` on the result before
+  retrying.
+
+```ts
+const result = await client.data.waitForResult(sessionId, handle);
+
+if (!result.ok) {
+  switch (result.reason) {
+    case 'denied':
+    case 'canceled':
+    case 'failed':
+      return null; // terminal for this attempt, surface to the caller
+    case 'expired':
+      return null; // create a fresh request if the task is still relevant
+    case 'timeout':
+      return null; // resume later with the same requestId, if still relevant
+  }
+}
+// result.artifact is safe to use
+```
+
+See [Error Reference](./error-reference.md) for the full table, bridge
+failure kinds, and HTTP-level errors.
+
+## 8. Continue In Your Runtime
 
 At this point the SDK has done its part. Your runtime decides what happens
 next:

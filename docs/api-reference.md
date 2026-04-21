@@ -1,9 +1,11 @@
 # API Reference
 
-This document is the lookup reference for the public MagicPay SDK API.
+Lookup reference for the public MagicPay SDK API. If you are new to the
+package, start with [Getting Started](./getting-started.md) and come back
+here as a lookup document.
 
-If you are new to the package, start with [Getting Started](./getting-started.md)
-before using this page as a lookup document.
+Every signature below is a public export from `@mercuryo-ai/magicpay-sdk`
+unless otherwise noted.
 
 ## API Base URL
 
@@ -11,8 +13,8 @@ before using this page as a lookup document.
 https://agents-api.mercuryo.io/functions/v1/api
 ```
 
-Create your API key in the MagicPay dashboard:
-[`agents.mercuryo.io/signup`](https://agents.mercuryo.io/signup)
+Create your API key in the MagicPay dashboard at
+[`agents.mercuryo.io/signup`](https://agents.mercuryo.io/signup).
 
 ## Entrypoints
 
@@ -29,17 +31,21 @@ Create your API key in the MagicPay dashboard:
 ## `createMagicPayClient(...)`
 
 ```ts
-createMagicPayClient({
-  gateway: {
-    apiKey: string,
-    apiUrl: string,
-  },
-  fetchImpl?: typeof fetch,
-})
+function createMagicPayClient(options: MagicPayClientOptions): MagicPayClient;
+
+interface MagicPayClientOptions {
+  gateway: MagicPayGatewayConfig;
+  fetchImpl?: typeof fetch;
+}
+
+interface MagicPayGatewayConfig {
+  apiKey: string;
+  apiUrl: string;
+}
 ```
 
-`fetchImpl` lets you swap in a different `fetch` implementation — useful for
-tests and for runtimes that route HTTP through a custom client.
+`fetchImpl` lets you swap in a different `fetch` implementation — useful
+for tests and for runtimes that route HTTP through a custom client.
 
 ## `client.sessions`
 
@@ -51,13 +57,99 @@ tests and for runtimes that route HTTP through a custom client.
 | `describe(session)` | Project an already-fetched session into `RemoteSessionState` |
 | `completeWithOutcome(sessionId, input, options?)` | Close the session with a final outcome |
 
-`client.sessions.create(...)` always creates a universal workflow session.
-Browser runtimes can optionally attach:
+### Signatures
 
-- `browser.sessionId` to bind the session to a live browser runtime
-- `browser.run` and `browser.step` to preserve local browser execution metadata
+```ts
+sessions.create(
+  input: CreateRemoteSessionInput,
+  options?: MagicPayClientRequestOptions
+): Promise<SessionResponse>;
 
-If the `browser` block is omitted, the session remains API/headless-only.
+sessions.get(
+  sessionId: string,
+  options?: MagicPayClientRequestOptions
+): Promise<SessionResponse>;
+
+sessions.getState(
+  sessionId: string,
+  options?: MagicPayClientRequestOptions
+): Promise<RemoteSessionState>;
+
+sessions.describe(session: SessionResponse): RemoteSessionState;
+
+sessions.completeWithOutcome(
+  sessionId: string,
+  input: CompleteRemoteSessionInput,
+  options?: MagicPayClientRequestOptions
+): Promise<CompleteRemoteSessionOutcome>;
+```
+
+### `CreateRemoteSessionInput`
+
+```ts
+interface CreateRemoteSessionInput {
+  type?: 'payment' | 'subscription' | 'cancellation';
+  method?: 'card' | 'crypto' | 'x402' | null;
+  amountTotal?: number | null;
+  currency?: string | null;
+  description?: string | null;
+  merchantName?: string | null;
+  browser?: CreateRemoteSessionBrowserInput;
+  context?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+  telemetry?: SessionTelemetryEnvelope;
+}
+
+interface CreateRemoteSessionBrowserInput {
+  sessionId: string;
+  entryCommand?: 'start-session';
+  page?: { ref?: string; url?: string; title?: string };
+  run?: SessionRemoteRunInput;
+  step?: SessionRemoteStepInput;
+}
+```
+
+All top-level fields are optional. API-only flows typically pass only
+`description`, `merchantName`, and optional `context`/`metadata`.
+Browser runtimes attach the `browser` block to bind the session to a live
+browser runtime (see [Integration Modes](./integration-modes.md)).
+
+### `CompleteRemoteSessionInput`
+
+```ts
+interface CompleteRemoteSessionInput {
+  clientCompletionId: string;
+  status: 'completed' | 'canceled' | 'error';
+  command: string;
+  summary: string;
+  timestamp: string;
+  details?: Record<string, unknown>;
+  telemetry?: SessionTelemetryEnvelope;
+  browser?: {
+    page?: { ref?: string; url?: string; title?: string };
+    run?: SessionRemoteRunInput & { status: 'completed' | 'failed' | 'aborted' };
+    step?: SessionRemoteStepInput;
+  };
+}
+```
+
+`clientCompletionId` makes the completion call idempotent — passing the
+same value returns the same terminal outcome without re-closing.
+
+### `CompleteRemoteSessionOutcome`
+
+```ts
+type CompleteRemoteSessionOutcome =
+  | { success: true; response: CompleteRemoteSessionResponse }
+  | {
+      success: false;
+      kind: 'already_closed' | 'not_found' | 'other';
+      reason: string;
+    };
+```
+
+`already_closed` and `not_found` are normal branches (idempotent retry,
+session removed by TTL). Treat `other` as a real failure.
 
 ### Session Lifecycle
 
@@ -94,105 +186,449 @@ Rules of thumb:
 | --- | --- |
 | `facts(options?)` | Read profile data (name, email, etc.) without requiring approval |
 
-`client.profile.facts()` is the broad open-data read model. It does not accept
-observed browser targets and it does not decide which fact belongs to which
-current input. Per-target matching on a live observed page is a browser-runtime
-concern above this SDK, and that layer should return one terminal decision per
-target (`matched`, `ambiguous`, or `no_match`) rather than matching raw
-`profile.facts()` output in your own code.
+### Signatures
+
+```ts
+profile.facts(
+  options?: MagicPayClientRequestOptions
+): Promise<MagicPayProfileFacts>;
+
+interface MagicPayProfileFacts {
+  facts: Record<string, unknown>;
+  updatedAt?: string;
+}
+```
+
+`client.profile.facts()` is the broad open-data read model. It does not
+accept observed browser targets and does not decide which fact belongs to
+which current input. Per-target matching on a live observed page is a
+browser-runtime concern above this SDK, and that layer should return one
+terminal decision per target (`matched`, `ambiguous`, or `no_match`)
+rather than matching raw `profile.facts()` output in your own code.
 
 ## `client.data`
 
 | Method | Purpose |
 | --- | --- |
 | `resolve(sessionId, input, options?)` | Create a data-request handle for the current session |
-| `waitForResult(sessionId, requestId, options?)` | Wait for or resume the final data result |
+| `waitForResult(sessionId, handle, options?)` | Wait for or resume the final data result |
+
+### Signatures
+
+```ts
+data.resolve(
+  sessionId: string,
+  input: MagicPayDataResolveInput,
+  options?: MagicPayClientRequestOptions
+): Promise<MagicPayRequestHandle>;
+
+data.waitForResult(
+  sessionId: string,
+  handle: MagicPayRequestHandle | string,
+  options?: MagicPayWaitForResultOptions
+): Promise<MagicPayRequestResult>;
+```
+
+`waitForResult` accepts either the handle object returned by `resolve` or
+just the `requestId` string — useful when another process resumes the wait.
+
+### `MagicPayDataResolveInput`
+
+```ts
+interface MagicPayDataResolveInput {
+  clientRequestId?: string;
+  fields: MagicPayRequestedField[];
+  context?: MagicPayRequestContext;
+  bridge?: MagicPayBridgeContext;
+  targetItemRef?: string;
+  saveHint?: MagicPaySaveHint;
+}
+
+interface MagicPayRequestedField {
+  key: string;
+  type?: 'text' | 'secret' | 'date' | 'number' | 'email' | 'url';
+  label?: string;
+  required?: boolean;
+  semanticTags?: string[];
+  refreshRequired?: boolean;
+}
+
+interface MagicPayRequestContext {
+  url?: string;
+  pageTitle?: string;
+  formPurpose?: string;
+  merchantName?: string;
+}
+
+interface MagicPayBridgeContext {
+  pageRef?: string;
+  fillRef?: string;
+  scopeRef?: string;
+  surfaceRef?: string;
+}
+
+interface MagicPaySaveHint {
+  category: string;
+  displayName: string;
+  schemaRef?: string;
+}
+```
+
+- `clientRequestId` — optional but recommended. A stable id makes retries
+  idempotent (same id returns the same `requestId` instead of duplicating
+  the request). If omitted, the SDK generates one.
+- `fields` — the only required field. Each entry is at minimum `{ key }`.
+- `bridge` — leave empty for API-only flows. Browser runtimes fill it
+  with refs from their observe step.
+- `saveHint` — tells MagicPay how to file the resolved values in the
+  user's vault when they approve.
 
 ## `client.actions`
 
 | Method | Purpose |
 | --- | --- |
 | `run(sessionId, input, options?)` | Create an action-request handle for the current session |
-| `waitForResult(sessionId, requestId, options?)` | Wait for or resume the final action result |
+| `waitForResult(sessionId, handle, options?)` | Wait for or resume the final action result |
 | `confirm(sessionId, input, options?)` | Convenience helper that creates and waits for an explicit confirmation action |
+
+### Signatures
+
+```ts
+actions.run(
+  sessionId: string,
+  input: MagicPayActionRunInput,
+  options?: MagicPayClientRequestOptions
+): Promise<MagicPayRequestHandle>;
+
+actions.waitForResult(
+  sessionId: string,
+  handle: MagicPayRequestHandle | string,
+  options?: MagicPayWaitForResultOptions
+): Promise<MagicPayRequestResult>;
+
+actions.confirm(
+  sessionId: string,
+  input: Omit<MagicPayActionRunInput, 'capability'>,
+  options?: MagicPayWaitForResultOptions
+): Promise<MagicPayRequestResult>;
+```
+
+`actions.confirm` is equivalent to `run` with `capability: 'confirm'`
+followed by `waitForResult`, in one call.
+
+### `MagicPayActionRunInput`
+
+```ts
+interface MagicPayActionRunInput {
+  clientRequestId?: string;
+  capability: string;
+  itemRef?: string;
+  params?: Record<string, unknown>;
+  display?: {
+    summary?: string;
+    presentation?: Record<string, unknown>;
+  };
+  context?: MagicPayRequestContext;
+  bridge?: MagicPayBridgeContext;
+}
+```
+
+- `capability` — the only required field. Names the protected action the
+  user is approving (e.g. `'confirm'`, `'sign'`, provider-specific keys).
+- `itemRef` — pin the action to a specific vault item when MagicPay
+  returned multiple candidates.
+- `params` — capability-specific payload; opaque to the SDK.
+- `display.summary` — short human-readable line for the approval UI.
 
 ## Request Handles
 
+```ts
+interface MagicPayRequestHandle {
+  requestId: string;
+  sessionId: string;
+  status: string;
+  resolutionPath: MagicPayResolutionPath;
+  itemRef?: string;
+}
+
+type MagicPayResolutionPath = 'auto' | 'confirm' | 'provide';
+```
+
 `data.resolve(...)` and `actions.run(...)` return a `MagicPayRequestHandle`
-with:
-
-- `requestId`
-- `sessionId`
-- `status`
-- `resolutionPath`
-- optional `itemRef`
-
-For idempotent retries, provide your own stable `clientRequestId` inside the
-`input` object passed to `data.resolve(...)` or `actions.run(...)`.
+that you pass into the matching `waitForResult(...)` call. For idempotent
+retries, provide your own stable `clientRequestId` inside the `input`
+object.
 
 ## Client Request Options
 
-| Option | Meaning |
-| --- | --- |
-| `timeoutMs` | Maximum local waiting window before the SDK returns `reason: "timeout"` |
-| `signal` | Abort signal for caller-driven cancellation |
+```ts
+interface MagicPayClientRequestOptions {
+  signal?: AbortSignal;
+  timeoutMs?: number;
+}
 
-Default profile:
+interface MagicPayWaitForResultOptions extends MagicPayClientRequestOptions {
+  intervalMs?: number;
+}
+```
 
-- timeout: `180_000` ms
+| Option | Meaning | Default |
+| --- | --- | --- |
+| `signal` | Abort signal for caller-driven cancellation. | — |
+| `timeoutMs` | Maximum local waiting window before `waitForResult(...)` returns `{ ok: false, reason: 'timeout' }`. | `180_000` (180s) |
+| `intervalMs` | Poll interval used by `waitForResult(...)`. | `5_000` (5s) |
 
-Bridge-only metadata such as `pageRef`, `fillRef`, and `scopeRef` belongs on
-the `input.bridge` field for `data.resolve(...)` or `actions.run(...)`, not in
-the request-options object.
+`timeout` is local to the SDK — the underlying request may still be live
+server-side. You can call `waitForResult(...)` again with the same
+`requestId` to resume.
 
-Those fields are optional and only belong to browser-driven integrations.
+Bridge-only metadata such as `pageRef`, `fillRef`, and `scopeRef` belongs
+on `input.bridge` for `data.resolve(...)` / `actions.run(...)`, not in
+this request-options object.
 
 ## Root Result Model
 
 `data.waitForResult(...)`, `actions.waitForResult(...)`, and
-`actions.confirm(...)` return one of two shapes:
+`actions.confirm(...)` all return the same discriminated union:
 
-- `{ ok: true, ... }` when the SDK already has the final values or action result;
-- `{ ok: false, reason: "denied" | "expired" | "failed" | "canceled" | "timeout", ... }`
-  when the request did not succeed.
+```ts
+type MagicPayRequestResult =
+  | {
+      ok: true;
+      requestId: string;
+      resolutionPath: MagicPayResolutionPath;
+      itemRef?: string;
+      artifact: MagicPayRequestArtifact;
+    }
+  | {
+      ok: false;
+      requestId: string;
+      reason: MagicPayRequestFailureReason;
+      message?: string;
+    };
 
-The root SDK hides:
+type MagicPayRequestFailureReason =
+  | 'denied' | 'expired' | 'failed' | 'canceled' | 'timeout';
+```
 
-- request creation through `resolve(...)` / `run(...)`;
-- waiting and polling through `waitForResult(...)`;
-- result retrieval;
-- `session_stop` handling and cancellation propagation.
+Always branch on `ok` first. On the failure side, branch on `reason` (see
+[Error Reference](./error-reference.md) and [Getting Started / Handle
+Failures](./getting-started.md#7-handle-failures)).
+
+### `MagicPayRequestArtifact`
+
+```ts
+type MagicPayRequestArtifact =
+  | { kind: 'values'; values: Record<string, unknown> }
+  | { kind: 'signature'; signature: string; signer: string }
+  | { kind: 'reference'; reference: string; metadata?: Record<string, unknown> }
+  | { kind: 'confirmation'; confirmed: true };
+```
+
+Always branch on `artifact.kind` before reading values:
+
+- `values` — field map like `{ username, password }` or `{ pan, cvv, ... }`.
+  Most data-request results.
+- `signature` — signer-signature pair for sign-request flows.
+- `reference` — opaque external reference (e.g. provider transaction id).
+- `confirmation` — the user approval itself is the result; no values
+  returned.
 
 ## `@mercuryo-ai/magicpay-sdk/core`
 
-Important pure helpers:
+Pure request/session helpers without the networked root client:
 
-| Helper | Purpose |
+| Helper area | Purpose |
 | --- | --- |
 | Request/session classifiers | Inspect lower-level response objects without the root client |
 | Catalog and bridge helpers | Expose direct host and observed-form logic for runtimes that own their own HTTP layer |
 | Session-state builders | Build session create/complete request bodies from higher-level state |
+| Vault catalog | Discover what the current user has stored that applies to a host |
 
 Use this subpath only when the root client is too high-level for your stack.
 
+### Vault Catalog
+
+Returns the subset of the user's MagicPay vault that applies to a given
+host, so a runtime can tell an agent what is available before (or instead
+of) guessing at a `saveHint`.
+
+```ts
+import { fetchVaultCatalog } from '@mercuryo-ai/magicpay-sdk/core';
+
+function fetchVaultCatalog(
+  gateway: MagicPayGatewayConfig,
+  sessionId: string,
+  url: string,
+  options?: MagicPayRequestOptions & { syncedAt?: string }
+): Promise<VaultCatalog>;
+
+interface VaultCatalog {
+  site: string;
+  syncedAt: string;
+  items: VaultCatalogEntry[];
+}
+
+interface VaultCatalogEntry {
+  itemRef: string;
+  category: string;          // 'login' | 'identity' | 'payment_card' | 'wallet'
+  displayName: string;
+  schemaRef: string | null;  // see built-in schemaRefs in the package README
+  fieldKeys: string[];       // stable field keys the item populates
+  capabilities: string[];    // e.g. 'authorize_payment', 'sign_message'
+  applicability:
+    | { mode: 'anywhere' }
+    | { mode: 'sites'; sites?: string[] };
+  availability: 'applicable' | 'requires_site_addition';
+}
+```
+
+Typical usage: call it once near the start of a browser or agent run to
+know which categories and `fieldKeys` are realistic for the current URL,
+then shape your `data.resolve(...)` input accordingly. The `itemRef` can be
+passed back as `targetItemRef` on a follow-up request when you want to pin
+resolution to the same item.
+
+This helper is read-only — it does not mutate the vault and does not
+expose any protected values, only the metadata an agent needs to plan.
+Schemas (the `schemaRef` vocabulary) are fixed on the server; the package
+README lists the currently supported set.
+
 ## `@mercuryo-ai/magicpay-sdk/agentbrowse`
 
-Important optional bridge helpers:
+Composable helpers for runtimes that already use
+`@mercuryo-ai/agentbrowse` and start from observed browser forms. Each
+helper is a pure function — wire them together with AgentBrowse's
+`match` / `resolve` / `fill` primitives to assemble your own bridge.
+The package does not expose a one-shot runtime on this subpath; the
+`completeObservedForm` used by our `magicpay-cli` / `magicpay-agent-cli`
+lives under `/internal/agentbrowse-runtime` and is not part of the
+stable public API.
+
+### Observation enrichment
 
 | Helper | Purpose |
 | --- | --- |
-| `enrichObservedFormsForUrl(...)` | Attach candidate inventory metadata to observed forms for a host |
-| `buildDataResolveInputForObservedForm(...)` | Convert one observed form into `data.resolve(...)` input |
-| `prepareProtectedFillFromValues(...)` | Convert a values artifact into AgentBrowse protected-fill input |
+| `enrichObservedFormsForUrl(forms, vaultCatalog, url)` | Attach stored-secret candidate metadata to each observed form for the current host |
+| `enrichObservedFormsWithStoredSecrets(forms, catalog)` | Lower-level enrichment when you already have a resolved `SecretCatalog` |
+| `enrichObservedFormsWithCandidateItems(forms, vaultCatalog)` | Attach applicable vault-catalog items (card, identity, login) to each observed form |
 
-Failure kinds for `buildDataResolveInputForObservedForm(...)` are documented in
+### Candidate building
+
+| Helper | Purpose |
+| --- | --- |
+| `buildObservedFormStoredSecretCandidates(form, catalog)` | Build `ObservedFormStoredSecretCandidate[]` for a single observed form |
+| `findObservedFormStoredSecretCandidate(form, catalog, storedSecretRef?)` | Pick one stored-secret candidate (by `storedSecretRef` when supplied, else first applicable) |
+| `buildObservedFormCandidateItems(form, vaultCatalog)` | Build `ObservedFormCandidateItem[]` ranked by availability and confidence |
+| `selectObservedFormCandidateItem(candidates, itemRef?)` | Pick one candidate item (explicit `itemRef` wins; otherwise the top-ranked entry) |
+| `buildObservedFormMatchCandidates({ fillableForm, merchantName, selectedCandidate, explicitItemRef? })` | Assemble `AgentbrowseGroupMatchCandidate[]` so your runtime can call `match(fillableForm, { from: buildObservedFormMatchCandidates(...) })` |
+
+### Request input and protected-fill input
+
+| Helper | Purpose |
+| --- | --- |
+| `buildResolveInput({ clientRequestId, merchantName, fillableForm, targetItemRef?, refreshFieldKeys?, urlOrHost?, page? })` | Convert one observed form into a `MagicPayDataResolveInput` ready for `client.data.resolve(sessionId, input)` |
+| `prepareProtectedFill({ fillableForm, catalog, protectedValues, storedSecretRef? })` | Convert a values artifact into AgentBrowse protected-fill input (values flow into the browser without passing through the LLM prompt — see [Security Model](./security-model.md)) |
+
+### Open-data matching
+
+| Helper | Purpose |
+| --- | --- |
+| `listObservedOpenDataEligibleTargetRefs({ targets, protectedForms })` | Return target refs that are candidates for open-data matching (excludes protected-form fields) |
+| `resolveObservedOpenDataTargets({ targets, targetRefs, protectedForms?, snapshot?, page? })` | Resolve a batch of observed targets against a session-local open-data snapshot; returns per-target `matched` / `ambiguous` / `no_match` |
+
+### Types (appendix)
+
+Exported from the same subpath:
+
+- `ObservedFormStoredSecretCandidate`, `ObservedFormCandidateItem`
+- `ObservedFormWithStoredSecrets<TForm>`, `ObservedFormWithCandidateItems<TForm>`
+- `ObservedOpenDataEntry`, `ObservedOpenDataSnapshot`, `ObservedOpenDataSource`
+- `ResolveObservedOpenDataTargetsParams`, `ResolvedObservedOpenDataTarget`
+- `BuildDataResolveInputForObservedFormOutcome`,
+  `BuildDataResolveInputForObservedFormFailureKind`
+- `PreparedProtectedFill<TForm>`
+
+The composing example below uses `AgentbrowseMatchResolver` from
+`@mercuryo-ai/agentbrowse` when the same adapter both fetches the
+artifact and applies it. If your integration already has a ready
+grouped artifact and only needs the apply step, type the handler as
+`AgentbrowseGroupFillHandler` instead — the narrow interface is
+accepted in the same `{ resolver }` slot on `fill(...)` and makes
+intent explicit.
+
+Failure kinds for `buildResolveInput(...)` are listed in
 [Error Reference](./error-reference.md).
+
+### Composing with AgentBrowse primitives
+
+Typical end-to-end flow for a single protected form:
+
+```ts
+import { match, resolve, fill, type AgentbrowseMatchResolver } from '@mercuryo-ai/agentbrowse';
+import {
+  buildObservedFormCandidateItems,
+  buildObservedFormMatchCandidates,
+  buildResolveInput,
+  prepareProtectedFill,
+  selectObservedFormCandidateItem,
+} from '@mercuryo-ai/magicpay-sdk/agentbrowse';
+import { fillProtectedForm } from '@mercuryo-ai/agentbrowse/protected-fill';
+
+const candidates = buildObservedFormCandidateItems(fillableForm, vaultCatalog);
+const selected = selectObservedFormCandidateItem(candidates, itemRef);
+
+const matched = await match(fillableForm, {
+  from: buildObservedFormMatchCandidates({
+    fillableForm,
+    merchantName,
+    selectedCandidate: selected,
+  }),
+});
+
+const magicpayResolver: AgentbrowseMatchResolver = {
+  async resolve(plan) {
+    const outcome = buildResolveInput({ /* ... */ fillableForm });
+    if (!outcome.success) throw new Error(outcome.reason);
+    const handle = await client.data.resolve(sessionId, outcome.input);
+    const result = await client.data.waitForResult(sessionId, handle);
+    if (!result.ok || result.artifact.kind !== 'values') throw new Error('…');
+    return { kind: 'artifact', artifact: result.artifact, /* metadata */ };
+  },
+  async fill(session, form, ready) {
+    const artifact = ready.artifact as { kind: 'values'; values: Record<string, string> };
+    const prepared = prepareProtectedFill({ fillableForm: form, catalog: null, protectedValues: artifact.values });
+    return fillProtectedForm({ session, ...prepared });
+  },
+};
+
+await fill(browserSession, fillableForm, matched, { resolver: magicpayResolver });
+```
+
+See the `@mercuryo-ai/agentbrowse` package's own Match / Resolve / Fill
+guide for the full mental model of the three primitives.
 
 ## Gateway Error Helpers
 
+Exported from the root package and from `@mercuryo-ai/magicpay-sdk/gateway`.
+
+```ts
+class MagicPayRequestError extends Error {
+  readonly status: number;
+  readonly payload: unknown;
+  readonly errorCode: string | null;
+  readonly responseText: string;
+  readonly contentType: string | null;
+}
+
+function getMagicPayErrorCode(error: unknown): string | null;
+function getMagicPayErrorMessage(error: unknown): string;
+function isMagicPayRequestErrorStatus(error: unknown, status?: number): boolean;
+```
+
 | Helper | Purpose |
 | --- | --- |
-| `MagicPayRequestError` | Error class for network or backend request failures |
-| `getMagicPayErrorCode(...)` | Normalize MagicPay error codes from a thrown error or response body |
-| `getMagicPayErrorMessage(...)` | Normalize a readable error message |
-| `isMagicPayRequestErrorStatus(...)` | Check whether an HTTP status is one the SDK treats as a request error |
+| `MagicPayRequestError` | Error class thrown on network or backend request failures. |
+| `getMagicPayErrorCode(err)` | Normalize the MagicPay error code from a thrown error or response body. |
+| `getMagicPayErrorMessage(err)` | Normalize a readable message for logs or UI. |
+| `isMagicPayRequestErrorStatus(err, status?)` | Check whether the error carries a given HTTP status (or any SDK-classified request status). |

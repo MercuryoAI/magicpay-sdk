@@ -64,18 +64,67 @@ your stack.
 
 ## Optional AgentBrowse Bridge
 
-Use `@mercuryo-ai/magicpay-sdk/agentbrowse` only when your runtime already uses
-`@mercuryo-ai/agentbrowse` and starts from observed browser forms.
+Use `@mercuryo-ai/magicpay-sdk/agentbrowse` only when your runtime already
+uses `@mercuryo-ai/agentbrowse` and starts from observed browser forms.
 
-This optional bridge adds helpers for:
+The bridge is a set of composable helpers on top of AgentBrowse's
+`match` / `resolve` / `fill` primitives. Each helper is a pure function
+you call yourself; there is no registered runtime and no one-shot
+«do everything» entry on the public subpath.
 
-- enriching observed forms with host-specific candidate inventory;
-- building request input from an observed form;
-- preparing protected-fill input from a lower-level fulfilled claim.
+The helpers cover:
 
-The bridge keeps browser observation and MagicPay request shape aligned
-inside one typed helper, so integrators do not need to wire them together
-manually.
+- enriching observed forms with host-specific candidate inventory
+  (`enrichObservedFormsForUrl`, `enrichObservedFormsWithCandidateItems`);
+- building grouped match candidates that `match(form, { from })` accepts
+  directly (`buildObservedFormMatchCandidates`);
+- building `data.resolve(...)` input from an observed form
+  (`buildResolveInput`);
+- converting a values artifact into AgentBrowse protected-fill input
+  (`prepareProtectedFill`) — "protected" here means the values flow
+  into the browser without passing through the LLM prompt, **not**
+  that an untrusted runtime is made safe; see
+  [Security Model](./security-model.md) for the explicit boundary;
+- matching observed open-data targets against a session-local snapshot
+  (`listObservedOpenDataEligibleTargetRefs`,
+  `resolveObservedOpenDataTargets`).
+
+The happy-path composes like this:
+
+```
+observe  →  buildObservedFormMatchCandidates  →  match
+                                                   │
+                                                   ▼
+                                       resolve (your MagicPay resolver,
+                                       using buildResolveInput internally
+                                       plus client.data.resolve / waitForResult)
+                                                   │
+                                                   ▼
+                                                 fill (via resolver.fill,
+                                                 which typically wraps
+                                                 fillProtectedForm with
+                                                 prepareProtectedFill)
+```
+
+See [API Reference](./api-reference.md#mercuryo-aimagicpay-sdkagentbrowse)
+for the full helper list, types, and a copy-paste ready composing
+example.
+
+### Why composable instead of one-shot
+
+Composable helpers give integrators control over how requests are
+created, how `client.data.waitForResult(...)` is structured (single
+process, sharded, background polling), and which approval UI is shown.
+A one-shot «resolve and fill this form» entry would force all of those
+decisions into one signature and bake CLI-shaped dependencies into the
+public API.
+
+A shared runtime that does make those decisions still exists under
+`@mercuryo-ai/magicpay-sdk/internal/agentbrowse-runtime`; it is what
+`magicpay-cli` and `magicpay-agent-cli` consume. It is intentionally
+not part of the stable consumer API — the `/internal/` segment is the
+signal. External consumers assemble their own version from the listed
+public helpers instead.
 
 ## What Stays Outside The SDK
 
@@ -84,9 +133,17 @@ MagicPay SDK does not own:
 - human approval UX;
 - browser-session lifecycle;
 - page observation;
+- navigation and reaching the target page;
 - final business logic after a successful result.
 
 Those remain in your application or in the runtime you already use.
+
+Any agentic browser stack works on that side (for example
+[Browser Use](https://github.com/browser-use/browser-use),
+[Magnitude](https://github.com/magnitudedev/browser-agent), or your own
+setup). `@mercuryo-ai/agentbrowse` is one such tool we also maintain —
+it is not a requirement. Failures that happen before the browser reaches
+the protected form are a browser-layer concern, not a MagicPay one.
 
 ## Next Steps
 

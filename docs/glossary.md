@@ -80,11 +80,40 @@ request refers to. Present on request handles once MagicPay has picked
 which item to use. Pass `targetItemRef` back in a follow-up request if you
 want to pin subsequent calls to the same item.
 
+### vault
+
+The user's MagicPay-side store of approved records: logins, identities,
+payment cards, and wallets. `data.resolve(...)` reads values from the
+vault through an approval flow, so the calling runtime never has to hold
+long-lived credentials.
+
 ### vault item
 
-A user-approved saved record in MagicPay — a login, identity document,
-payment card, crypto wallet, or similar. Vault items are what `data.resolve(...)`
-returns values from.
+One user-approved saved record in the vault. Each item has a `category`
+(`login`, `identity`, `payment_card`, `wallet`), a `schemaRef` pointing at
+a built-in schema, and a set of `fieldKeys` it populates.
+
+### vault catalog
+
+The applicable subset of the user's vault for a given host, returned by
+`fetchVaultCatalog(...)`. Used by a runtime to discover *what is available*
+before asking the user for anything. See
+[API Reference — Vault Catalog](./api-reference.md#vault-catalog).
+
+### built-in schemas
+
+MagicPay schemas are server-defined. The current set is `login.basic`,
+`identity.basic`, `identity.document`, `payment_card.provider`, and
+`wallet.default`. Callers pick the right `schemaRef` in `saveHint`; they
+do not register new schemas from the SDK side. The package README lists
+each schema's `fieldKeys`.
+
+### `fieldKey`
+
+The stable identifier for a value the vault can hold (for example,
+`username`, `pan`, `full_name`). You list `fieldKey`s in `data.resolve(...)`
+inputs to ask for specific values. The set of valid keys per schema is
+fixed on the server.
 
 ### profile fact
 
@@ -133,12 +162,74 @@ request inside the same session after a `session_stop`.
 
 ### `host_resolution_failed`
 
-Failure kind from `buildDataResolveInputForObservedForm(...)` — the bridge
-could not match the observed page to a known host. Caller passes a valid
-page URL or host catalog.
+Failure kind from `buildResolveInput(...)` — the bridge could not match
+the observed page to a known host. Caller passes a valid page URL or
+host catalog.
 
 ### `stored_secret_not_available`
 
-Failure kind from `buildDataResolveInputForObservedForm(...)` — the chosen
-vault-item candidate is no longer available for this host. Caller
-refreshes the candidate inventory or picks a different item.
+Failure kind from `buildResolveInput(...)` — the chosen vault-item
+candidate is no longer available for this host. Caller refreshes the
+candidate inventory or picks a different item.
+
+## AgentBrowse primitives (bridge users)
+
+When the optional `@mercuryo-ai/magicpay-sdk/agentbrowse` bridge is in
+play, these terms also appear. They are defined in depth in the
+`@mercuryo-ai/agentbrowse` package's docs; the entries here exist so
+you do not have to leave the SDK reference for the one-line meaning.
+
+### match result
+
+The return value of `match(subject, { from })` from
+`@mercuryo-ai/agentbrowse`. A discriminated union over `kind` — `ready`,
+`needs_resolution`, `ambiguous`, `no_match`, and grouped counterparts.
+Always branch on `kind`.
+
+### resolution plan
+
+The `plan` field on a `needs_resolution` or `needs_resolution_group`
+match result. A serialisable description of the work (target ref, field
+key, resolve request) without any value payload — safe to log or ship
+across a process boundary.
+
+### candidate ref
+
+Opaque string that identifies one entry in the source a `match(...)`
+call was given. Used inside resolution plans and in the composable
+helpers (`AgentbrowseGroupMatchCandidate.candidateRef`) to trace a
+decision back to its input.
+
+### value ref / artifact ref
+
+Opaque strings carried on ready match results. They point at a value or
+artifact held behind a non-enumerable accessor on the result object —
+`fill(...)` dereferences them internally. These refs are never raw
+values and do not survive serialisation (`JSON.stringify`,
+`structuredClone`, IPC).
+
+### resolver adapter
+
+A caller-supplied object passed through the `{ resolver }` slot on
+`fill(...)`. Two shapes are accepted:
+
+- `AgentbrowseMatchResolver` — the main interface. Required `resolve`
+  plus optional `resolveBatch` and optional `fill`. Use this when your
+  runtime fetches values (required by `resolve(plan, { with })`, which
+  does not accept the narrow handler).
+- `AgentbrowseGroupFillHandler` — narrow interface with just `fill`.
+  Use this when you already have a ready grouped artifact and only
+  need to apply it at the `fill(...)` boundary.
+
+The adapter is the one place domain-specific transport lives —
+AgentBrowse core never reaches the network itself.
+
+### `resolver.fill`
+
+The grouped-apply capability on the resolver. Called by
+`fill(session, form, plan, { resolver })` after a grouped artifact has
+been produced, with the session, the form subject, and the ready
+artifact. Typically delegates to `fillProtectedForm(...)` so the
+protected-fill guardrails still apply. Present as the required method
+on `AgentbrowseGroupFillHandler` and as an optional method on
+`AgentbrowseMatchResolver`.
