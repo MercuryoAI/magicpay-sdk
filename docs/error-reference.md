@@ -5,7 +5,7 @@ MagicPay SDK, and what to do about each one. There are three kinds:
 
 1. **Result reasons** from `waitForResult(...)` — the request completed the
    server round trip but did not produce a usable artifact.
-2. **Bridge failure kinds** from the AgentBrowse bridge helpers — input
+2. **Bridge failure kinds** from the MagicBrowse bridge helpers — input
    could not be built from an observed form.
 3. **Thrown errors** from HTTP-level failures — the SDK could not talk to
    the MagicPay service at all.
@@ -52,41 +52,37 @@ before deciding whether to retry or abandon the flow.
 
 ## 2. Bridge Failure Kinds
 
-`buildResolveInput(...)` (from `@mercuryo-ai/magicpay-sdk/agentbrowse`)
-can fail before anything reaches the network:
+`buildResolveInput(...)` from `@mercuryo-ai/magicpay-sdk/magicbrowse` can fail
+before anything reaches the network:
 
 | Kind | When it happens | What to do |
 | --- | --- | --- |
 | `host_resolution_failed` | The bridge could not resolve a usable host from the page URL, host, or catalog. | Pass a valid page URL or a catalog that includes a host. |
 | `stored_secret_not_available` | The chosen vault-item candidate is not available for the observed form and host. | Refresh the candidate inventory or pick a different vault item. |
 
-## 3. AgentBrowse Fill Contract
+## 3. MagicBrowse Fill Contract
 
-When your runtime composes `match` / `resolve` / `fill` from
-`@mercuryo-ai/agentbrowse` with the SDK's composable helpers, three
-independent failure surfaces can be reached in one call chain:
+When your runtime composes MagicBrowse `match(...)` / `fillProtectedGroup(...)`
+with the SDK's composable helpers, three independent failure surfaces can be
+reached in one call chain:
 
 - **Your resolver adapter's exceptions.** Anything thrown inside
-  `resolver.resolve(...)` or `resolver.fill(...)` propagates. The
+  your `data.resolve(...)` / `data.waitForResult(...)` adapter propagates. The
   composing example at
-  [API Reference → Composing with AgentBrowse primitives](./api-reference.md#composing-with-agentbrowse-primitives)
+  [API Reference -> Composing with MagicBrowse primitives](./api-reference.md#composing-with-magicbrowse-primitives)
   uses `throw new Error(result.message ?? result.reason)` so that
   `MagicPayRequestFailureReason` values (`denied`, `expired`, `failed`,
-  `canceled`, `timeout`) surface as thrown errors on the caller side —
-  the SDK does not re-map them into AgentBrowse failures for you.
+  `canceled`, `timeout`) surface as thrown errors on the caller side.
 - **Bridge input failures.** `buildResolveInput(...)` returns an
   `{ success: false, kind }` outcome with the two kinds listed in
   section 2 — your adapter decides whether to throw or short-circuit.
-- **AgentBrowse contract failures.** `fill(...)` itself can return a
-  typed contract failure when the match result is ambiguous, has no
-  match, or needs a capability your resolver did not implement. The
-  stable `error` codes are `match_no_match`, `match_ambiguous`,
-  `match_resolver_required`, `match_value_unavailable`, and
-  `match_artifact_unavailable`. See the `@mercuryo-ai/agentbrowse`
-  package's own API Reference for the full table.
+- **MagicBrowse contract failures.** `match(...)` can return `no_match_group` or
+  `ambiguous_group`, and `fillProtectedGroup(...)` can return `blocked` with
+  reasons such as `match_not_ready`, `artifact_unavailable`, `target_missing`,
+  `ambiguous_date`, or `assistive_low_confidence`.
 
 Branch on the most specific layer first: adapter exceptions, then
-bridge input failures, then the AgentBrowse contract failure codes.
+bridge input failures, then the MagicBrowse match/fill result.
 
 ## 4. HTTP-Level Errors
 

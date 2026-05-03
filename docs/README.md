@@ -18,8 +18,7 @@ Use this route map:
   `profile.facts -> data.resolve -> data.waitForResult -> actions.run -> actions.waitForResult`
   flow.
 - [Integration Modes](./integration-modes.md)
-  Explanation of the root SDK, pure helpers, and the optional AgentBrowse
-  bridge.
+  Explanation of the root SDK, pure helpers, and the optional MagicBrowse bridge.
 - [API Reference](./api-reference.md)
   Lookup reference for the public entrypoints and client methods.
 - [Error Reference](./error-reference.md)

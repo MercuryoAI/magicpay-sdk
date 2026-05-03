@@ -18,7 +18,7 @@ The standard flow is:
 - `actions.run(...)` plus `actions.waitForResult(...)` for protected actions.
 
 The optional subpaths cover specialized integrations that want pure helpers
-or the AgentBrowse bridge.
+or the MagicBrowse bridge.
 
 ## At A Glance
 
@@ -26,7 +26,7 @@ or the AgentBrowse bridge.
 | --- | --- | --- |
 | A known runtime task and explicit request context | `@mercuryo-ai/magicpay-sdk` | Main client for sessions, profile facts, data resolution, and actions |
 | Pure request and session state logic | `@mercuryo-ai/magicpay-sdk/core` | Pure helpers without the networked root client |
-| Observed protected forms from an existing AgentBrowse runtime | `@mercuryo-ai/magicpay-sdk/agentbrowse` | Optional bridge from observed forms to MagicPay request input |
+| Observed protected forms from MagicBrowse | `@mercuryo-ai/magicpay-sdk/magicbrowse` | Optional bridge from observed forms to MagicPay request input and protected browser fill |
 
 ## Root SDK
 
@@ -62,15 +62,15 @@ still want MagicPay's request and session logic:
 This subpath is useful when the root client would add too much abstraction for
 your stack.
 
-## Optional AgentBrowse Bridge
+## Optional MagicBrowse Bridge
 
-Use `@mercuryo-ai/magicpay-sdk/agentbrowse` only when your runtime already
-uses `@mercuryo-ai/agentbrowse` and starts from observed browser forms.
+Use `@mercuryo-ai/magicpay-sdk/magicbrowse` when your runtime uses
+`@mercuryo-ai/magicbrowse` and starts from observed browser forms.
 
-The bridge is a set of composable helpers on top of AgentBrowse's
-`match` / `resolve` / `fill` primitives. Each helper is a pure function
-you call yourself; there is no registered runtime and no one-shot
-«do everything» entry on the public subpath.
+The bridge is a set of composable helpers around MagicBrowse's protected field
+semantics, `match(...)`, and `fillProtectedGroup(...)`. Each helper is a pure
+function you call yourself; there is no registered runtime and no one-shot
+"do everything" entry on the public subpath.
 
 The helpers cover:
 
@@ -80,7 +80,7 @@ The helpers cover:
   directly (`buildObservedFormMatchCandidates`);
 - building `data.resolve(...)` input from an observed form
   (`buildResolveInput`);
-- converting a values artifact into AgentBrowse protected-fill input
+- converting a values artifact into protected-fill input
   (`prepareProtectedFill`) — "protected" here means the values flow
   into the browser without passing through the LLM prompt, **not**
   that an untrusted runtime is made safe; see
@@ -99,14 +99,14 @@ observe  →  buildObservedFormMatchCandidates  →  match
                                        using buildResolveInput internally
                                        plus client.data.resolve / waitForResult)
                                                    │
-                                                   ▼
-                                                 fill (via resolver.fill,
-                                                 which typically wraps
-                                                 fillProtectedForm with
-                                                 prepareProtectedFill)
+                                                 ▼
+                                                fill (with
+                                                fillProtectedGroup and an
+                                                artifactReader that exposes
+                                                only the approved request)
 ```
 
-See [API Reference](./api-reference.md#mercuryo-aimagicpay-sdkagentbrowse)
+See [API Reference](./api-reference.md#mercuryo-aimagicpay-sdkmagicbrowse)
 for the full helper list, types, and a copy-paste ready composing
 example.
 
@@ -120,11 +120,11 @@ decisions into one signature and bake CLI-shaped dependencies into the
 public API.
 
 A shared runtime that does make those decisions still exists under
-`@mercuryo-ai/magicpay-sdk/internal/agentbrowse-runtime`; it is what
-`magicpay-cli` and `magicpay-agent-cli` consume. It is intentionally
-not part of the stable consumer API — the `/internal/` segment is the
-signal. External consumers assemble their own version from the listed
-public helpers instead.
+`@mercuryo-ai/magicpay-sdk/internal/magicbrowse-runtime`; it is what
+`magicpay-cli` and `magicpay-agent-cli` consume. This internal path is not part
+of the stable consumer API — the `/internal/` segment is the signal. External
+consumers assemble their own version from the
+listed public helpers instead.
 
 ## What Stays Outside The SDK
 
@@ -141,14 +141,14 @@ Those remain in your application or in the runtime you already use.
 Any agentic browser stack works on that side (for example
 [Browser Use](https://github.com/browser-use/browser-use),
 [Magnitude](https://github.com/magnitudedev/browser-agent), or your own
-setup). `@mercuryo-ai/agentbrowse` is one such tool we also maintain —
-it is not a requirement. Failures that happen before the browser reaches
-the protected form are a browser-layer concern, not a MagicPay one.
+setup). MagicBrowse is the first-party browser runtime for the bridge helpers.
+Failures that happen before the browser reaches the protected form are a
+browser-layer concern, not a MagicPay one.
 
 ## Next Steps
 
 - For the first root-client integration, use
   [Getting Started](./getting-started.md).
-- For the optional AgentBrowse path, open
-  [`examples/agentbrowse-bridge.ts`](../examples/agentbrowse-bridge.ts).
+- For the optional MagicBrowse path, open
+  [`examples/magicbrowse-bridge.ts`](../examples/magicbrowse-bridge.ts).
 - For lookup details, use [API Reference](./api-reference.md).

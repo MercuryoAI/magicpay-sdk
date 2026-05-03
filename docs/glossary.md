@@ -143,10 +143,10 @@ save the result as a new or updated vault item:
 Optional ids that tie a request to a specific browser page and form when
 your runtime is browser-driven. Present on `input.bridge`:
 
-- `pageRef` — the AgentBrowse `pageRef` identifying the current page state.
-- `fillRef` — the AgentBrowse fillable-form id returned by
+- `pageRef` — the MagicBrowse `pageRef` identifying the current page state.
+- `fillRef` — the MagicBrowse fillable-form id returned by
   `observe(...)`.
-- `scopeRef` — the AgentBrowse scope id containing the form.
+- `scopeRef` — the MagicBrowse scope id containing the form.
 - `surfaceRef` — target-ref of a specific visible control (rarely needed).
 
 Omit the whole block for API-only flows.
@@ -172,17 +172,15 @@ Failure kind from `buildResolveInput(...)` — the chosen vault-item
 candidate is no longer available for this host. Caller refreshes the
 candidate inventory or picks a different item.
 
-## AgentBrowse primitives (bridge users)
+## MagicBrowse primitives (bridge users)
 
-When the optional `@mercuryo-ai/magicpay-sdk/agentbrowse` bridge is in
-play, these terms also appear. They are defined in depth in the
-`@mercuryo-ai/agentbrowse` package's docs; the entries here exist so
-you do not have to leave the SDK reference for the one-line meaning.
+When the optional `@mercuryo-ai/magicpay-sdk/magicbrowse` bridge is in play,
+these terms also appear.
 
 ### match result
 
 The return value of `match(subject, { from })` from
-`@mercuryo-ai/agentbrowse`. A discriminated union over `kind` — `ready`,
+`@mercuryo-ai/magicbrowse`. A discriminated union over `kind` — `ready`,
 `needs_resolution`, `ambiguous`, `no_match`, and grouped counterparts.
 Always branch on `kind`.
 
@@ -197,39 +195,18 @@ across a process boundary.
 
 Opaque string that identifies one entry in the source a `match(...)`
 call was given. Used inside resolution plans and in the composable
-helpers (`AgentbrowseGroupMatchCandidate.candidateRef`) to trace a
-decision back to its input.
+helpers to trace a decision back to its input.
 
 ### value ref / artifact ref
 
-Opaque strings carried on ready match results. They point at a value or
-artifact held behind a non-enumerable accessor on the result object —
-`fill(...)` dereferences them internally. These refs are never raw
-values and do not survive serialisation (`JSON.stringify`,
-`structuredClone`, IPC).
+Opaque strings carried on ready match results. `fillProtectedGroup(...)` passes
+the artifact ref to your artifact reader, and only that reader returns the
+approved values to the protected browser writer. These refs are never raw
+values.
 
-### resolver adapter
+### artifact reader
 
-A caller-supplied object passed through the `{ resolver }` slot on
-`fill(...)`. Two shapes are accepted:
-
-- `AgentbrowseMatchResolver` — the main interface. Required `resolve`
-  plus optional `resolveBatch` and optional `fill`. Use this when your
-  runtime fetches values (required by `resolve(plan, { with })`, which
-  does not accept the narrow handler).
-- `AgentbrowseGroupFillHandler` — narrow interface with just `fill`.
-  Use this when you already have a ready grouped artifact and only
-  need to apply it at the `fill(...)` boundary.
-
-The adapter is the one place domain-specific transport lives —
-AgentBrowse core never reaches the network itself.
-
-### `resolver.fill`
-
-The grouped-apply capability on the resolver. Called by
-`fill(session, form, plan, { resolver })` after a grouped artifact has
-been produced, with the session, the form subject, and the ready
-artifact. Typically delegates to `fillProtectedForm(...)` so the
-protected-fill guardrails still apply. Present as the required method
-on `AgentbrowseGroupFillHandler` and as an optional method on
-`AgentbrowseMatchResolver`.
+A caller-supplied object passed to `fillProtectedGroup(...)`. It receives
+`artifactRef`, `subject`, and `candidate`, then returns either the approved
+values for that exact artifact or `artifact_unavailable`. This is the one
+place the browser bridge sees the MagicPay values artifact.

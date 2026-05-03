@@ -57,20 +57,26 @@ For backend jobs, workers, MCP tools, and API-only flows, create a regular
 session and leave browser-specific fields out of the request body.
 
 ```ts
-const session = await client.sessions.create({
-  description: 'Renew API usage access',
-  merchantName: 'ChatGPT',
+const { session } = await client.sessions.create({
+  type: 'payment',
+  description: 'Pay for SF→NYC ticket',
+  merchantName: 'Airline Example',
   context: {
-    url: 'https://api.openai.com/v1/responses',
-    task: 'call provider api with resolved credentials',
+    url: 'https://airline.example.com/checkout',
+    task: 'resolve payment card and submit checkout',
   },
   metadata: {
     source: 'backend-worker',
   },
 });
 
-const sessionId = session.session.id;
+const sessionId = session.id;
 ```
+
+`session.type` is the billing classification of the workflow
+(`payment` / `subscription` / `cancellation`). The schema you actually
+resolve (`login.basic`, `identity.basic`, `payment_card.provider`, …) is
+chosen separately per `data.resolve(...)` call.
 
 If you already have a `sessionId`, reuse it and skip this step.
 
@@ -105,36 +111,42 @@ Use `data.resolve(...)` when the runtime needs actual field values for the
 current protected page or form.
 
 ```ts
-const loginHandle = await client.data.resolve(
+const cardHandle = await client.data.resolve(
   sessionId,
   {
-    clientRequestId: 'chatgpt-login-request-1',
-    fields: [{ key: 'username' }, { key: 'password' }],
+    clientRequestId: 'airline-checkout-card-1',
+    fields: [
+      { key: 'cardholder' },
+      { key: 'pan' },
+      { key: 'exp_month' },
+      { key: 'exp_year' },
+      { key: 'cvv' },
+    ],
     context: {
-      url: 'https://chatgpt.com/auth/login',
-      pageTitle: 'Login',
-      formPurpose: 'login',
-      merchantName: 'ChatGPT',
+      url: 'https://airline.example.com/checkout',
+      pageTitle: 'Checkout',
+      formPurpose: 'payment_card',
+      merchantName: 'Airline Example',
     },
     saveHint: {
-      category: 'login',
-      displayName: 'ChatGPT Login',
-      schemaRef: 'login.basic',
+      category: 'payment_card',
+      displayName: 'Primary Visa',
+      schemaRef: 'payment_card.provider',
     },
   }
 );
 
-const loginResult = await client.data.waitForResult(sessionId, loginHandle);
+const cardResult = await client.data.waitForResult(sessionId, cardHandle);
 
-if (!loginResult.ok) {
-  throw new Error(loginResult.reason);
+if (!cardResult.ok) {
+  throw new Error(cardResult.reason);
 }
 
-if (loginResult.artifact.kind !== 'values') {
-  throw new Error(`Expected values, received ${loginResult.artifact.kind}`);
+if (cardResult.artifact.kind !== 'values') {
+  throw new Error(`Expected values, received ${cardResult.artifact.kind}`);
 }
 
-console.log(loginResult.artifact.values);
+console.log(cardResult.artifact.values);
 ```
 
 Important root-SDK behavior:
@@ -157,15 +169,15 @@ or confirm a protected action".
 
 ```ts
 const actionHandle = await client.actions.run(sessionId, {
-  clientRequestId: 'checkout-confirm-request-1',
+  clientRequestId: 'airline-checkout-confirm-1',
   capability: 'confirm',
   display: {
     summary: 'Approve the final checkout step',
   },
   context: {
-    url: 'https://checkout.example.com/review',
+    url: 'https://airline.example.com/checkout/review',
     pageTitle: 'Review order',
-    merchantName: 'Example Store',
+    merchantName: 'Airline Example',
   },
 });
 
@@ -231,7 +243,7 @@ next:
 
 ## Optional Browser Bridge
 
-If your runtime already uses `@mercuryo-ai/agentbrowse` and starts from
-observed browser forms, the optional bridge is documented in
+If your runtime uses `@mercuryo-ai/magicbrowse` and starts from observed browser
+forms, the optional bridge is documented in
 [Integration Modes](./integration-modes.md) and
-[`examples/agentbrowse-bridge.ts`](../examples/agentbrowse-bridge.ts).
+[`examples/magicbrowse-bridge.ts`](../examples/magicbrowse-bridge.ts).

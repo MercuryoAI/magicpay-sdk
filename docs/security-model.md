@@ -12,8 +12,8 @@ goal or marks where the design stops.
 ## What "Protected" Means Here
 
 Across this SDK and the wider toolchain — `prepareProtectedFill`,
-`fillProtectedForm` in `@mercuryo-ai/agentbrowse`, the `protected-fill`
-import subpath, the `protected` sensitivity tag on vault fields, the
+`fillProtectedGroup` in `@mercuryo-ai/magicbrowse`, the `protected` sensitivity
+tag on vault fields, the
 `magicpay find-form` → `magicpay resolve-form` CLI flow — the word
 *protected* means the same thing:
 
@@ -41,24 +41,19 @@ following risks:
   chat histories do not contain it. The one-shot artifact returned by
   `waitForResult(...)` is intended for direct forwarding to the next
   step, not for passing through the model.
-- **Accidental runtime logging.** The SDK does not log protected values
-  from its own code paths, and tools in the surrounding family (e.g.
-  `fillProtectedForm`) redact page-level validation text so it cannot
-  echo a just-submitted value back into the transcript.
+- **Accidental runtime logging.** The SDK does not log protected values from
+  its own code paths, and MagicBrowse records exact-value redaction profiles after
+  protected fill so later observe, act prompt state, debug text, and console
+  persistence do not echo a just-submitted value back into the transcript.
 - **Unapproved reuse.** Every request carries a `resolutionPath` of
   `auto`, `confirm`, or `provide`. An `auto` path only fires when a trust
   rule or prior approval covers it; everything else requires a fresh user
   decision, visible in the MagicPay UI.
-- **Match results do not carry raw values.** When the optional
-  AgentBrowse bridge is in play, `match(...)` returns plans and opaque
-  value/artifact refs; the raw value is held behind a non-enumerable
-  accessor that only `fill(...)` reads. Serialising a ready match
-  result (JSON, `structuredClone`, IPC) drops the accessor — the
-  serialisable shape of the pipeline is the `needs_resolution` plan,
-  which has no value payload. This pushes the «kept out of the LLM
-  prompt» invariant one layer deeper than the final artifact: even the
-  intermediate match step does not carry the value through
-  serialisable result objects.
+- **Match results do not carry raw values.** When the optional MagicBrowse bridge
+  is in play, `match(...)` returns plans and opaque artifact refs. The raw
+  value is read only by the artifact reader that feeds `fillProtectedGroup(...)`.
+  Serializable match and fill results carry refs, field keys, status, and
+  redacted summaries, not the approved values themselves.
 - **Replay of a completed artifact.** The request artifact is delivered
   once. Subsequent calls with the same `requestId` do not re-hand the
   value; they observe the terminal state. Retries are safe only through
@@ -138,10 +133,9 @@ provide them at a different layer.
 - If your runtime takes screenshots or full-page snapshots, avoid
   capturing them *after* a protected fill on the same page, or redact
   known sensitive regions before forwarding.
-- When using the AgentBrowse bridge, keep `fillProtectedForm(...)`
-  imports on the `/protected-fill` subpath (as the bridge does) so the
-  secret-handling surface stays separable from the rest of the codebase
-  during review.
+- When using the MagicBrowse bridge, keep protected writes behind
+  `fillProtectedGroup(...)` so the secret-handling surface stays separable
+  from ordinary browser actions during review.
 - If an integration requires stronger guarantees against the "compromised
   runtime" threat (confidential computing, attested enclaves, hardware
   security modules), treat that as work outside this SDK — MagicPay is

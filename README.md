@@ -75,8 +75,8 @@ the signature.
 
 > Field keys above are **what MagicPay can resolve**. The browser-side
 > contract — which of those keys a live form actually accepts — comes from
-> `@mercuryo-ai/agentbrowse`'s `fillableForm.fields`. When you use the
-> optional AgentBrowse bridge, the keys line up automatically.
+> MagicBrowse protected form descriptors. When you use the optional MagicBrowse bridge,
+> the keys line up automatically.
 
 ## When To Use It
 
@@ -116,16 +116,16 @@ Most integrations use the root package only.
 | --- | --- |
 | `@mercuryo-ai/magicpay-sdk` | You want the standard SDK with all features: session helpers, profile data, data resolution, and action execution. |
 | `@mercuryo-ai/magicpay-sdk/core` | You want lower-level pure helpers for request/session state without the networked root client. |
-| `@mercuryo-ai/magicpay-sdk/agentbrowse` | You already use `@mercuryo-ai/agentbrowse` and want the optional bridge from observed forms into MagicPay request input. |
+| `@mercuryo-ai/magicpay-sdk/magicbrowse` | You use `@mercuryo-ai/magicbrowse` and want the optional bridge from observed forms into MagicPay request input and protected browser fill. |
 
 Any agentic browser stack works on the browser side (for example
 [Browser Use](https://github.com/browser-use/browser-use),
 [Magnitude](https://github.com/magnitudedev/browser-agent), or your own
 setup). If you do not already have one and want the observed-forms
-bridge helpers, `@mercuryo-ai/agentbrowse` is one option we also maintain:
+bridge helpers, use MagicBrowse:
 
 ```bash
-npm i @mercuryo-ai/magicpay-sdk @mercuryo-ai/agentbrowse
+npm i @mercuryo-ai/magicpay-sdk @mercuryo-ai/magicbrowse
 ```
 
 ## Quick Start
@@ -144,14 +144,24 @@ const client = createMagicPayClient({
 });
 
 const { session } = await client.sessions.create({
-  description: 'Renew API usage access',
-  merchantName: 'ChatGPT',
+  type: 'payment',
+  description: 'Pay for SF→NYC ticket',
+  merchantName: 'Airline Example',
 });
 
 const handle = await client.data.resolve(session.id, {
-  clientRequestId: 'chatgpt-login-1',
-  fields: [{ key: 'username' }, { key: 'password' }],
-  context: { url: 'https://chatgpt.com/auth/login', formPurpose: 'login' },
+  clientRequestId: 'airline-checkout-1',
+  fields: [
+    { key: 'cardholder' },
+    { key: 'pan' },
+    { key: 'exp_month' },
+    { key: 'exp_year' },
+    { key: 'cvv' },
+  ],
+  context: {
+    url: 'https://airline.example.com/checkout',
+    formPurpose: 'payment_card',
+  },
 });
 
 const result = await client.data.waitForResult(session.id, handle);
@@ -163,6 +173,12 @@ if (result.artifact.kind !== 'values') {
 
 console.log(result.artifact.values);
 ```
+
+`session.type` is the billing classification of the workflow
+(`payment` / `subscription` / `cancellation`); the field-level schema
+(`login.basic`, `identity.basic`, `payment_card.provider`, …) is
+independent and chosen per `data.resolve(...)` call via `fields[].key`
+and an optional `saveHint`.
 
 The flow is always the same shape:
 
@@ -244,12 +260,12 @@ API-only flows leave that block out.
 
 For specialized integrations, the SDK also publishes lower-level helpers
 under `@mercuryo-ai/magicpay-sdk/core` and
-`@mercuryo-ai/magicpay-sdk/agentbrowse`. The AgentBrowse subpath is a
-set of composable helpers (candidate building, request input,
-protected-fill input, open-data matching) designed to compose with
-`@mercuryo-ai/agentbrowse`'s `match` / `resolve` / `fill` primitives.
+`@mercuryo-ai/magicpay-sdk/magicbrowse`. The MagicBrowse subpath is a set of
+composable helpers (candidate building, request input, protected-fill input,
+open-data matching) designed to compose with `@mercuryo-ai/magicbrowse`
+`match(...)` and `fillProtectedGroup(...)`.
 See [Integration Modes](./docs/integration-modes.md) and the bridge
-example under [`examples/agentbrowse-bridge.ts`](./examples/agentbrowse-bridge.ts)
+example under [`examples/magicbrowse-bridge.ts`](./examples/magicbrowse-bridge.ts)
 if you need either.
 
 ## Continue Reading
@@ -257,8 +273,7 @@ if you need either.
 - Start with [Getting Started](./docs/getting-started.md) for the first root
   integration.
 - Read [Integration Modes](./docs/integration-modes.md) if you need help
-  choosing between the root SDK, pure helpers, and the optional AgentBrowse
-  bridge.
+  choosing between the root SDK, pure helpers, and the optional MagicBrowse bridge.
 - Use [API Reference](./docs/api-reference.md) and
   [Error Reference](./docs/error-reference.md) as lookup documents while
   integrating.

@@ -22,7 +22,7 @@ Create your API key in the MagicPay dashboard at
 | --- | --- |
 | `@mercuryo-ai/magicpay-sdk` | `createMagicPayClient(...)`, public runtime types, and the main client |
 | `@mercuryo-ai/magicpay-sdk/core` | Lower-level pure request/session helpers |
-| `@mercuryo-ai/magicpay-sdk/agentbrowse` | Optional bridge helpers for runtimes that already use AgentBrowse observed forms |
+| `@mercuryo-ai/magicpay-sdk/magicbrowse` | Optional bridge helpers for runtimes that use MagicBrowse observed forms |
 | `@mercuryo-ai/magicpay-sdk/gateway` | Gateway config and HTTP error helpers |
 | `@mercuryo-ai/magicpay-sdk/session-client` | Lower-level helpers for session and request HTTP calls |
 | `@mercuryo-ai/magicpay-sdk/session-flow` | Session-outcome builders and state classifiers |
@@ -494,16 +494,16 @@ expose any protected values, only the metadata an agent needs to plan.
 Schemas (the `schemaRef` vocabulary) are fixed on the server; the package
 README lists the currently supported set.
 
-## `@mercuryo-ai/magicpay-sdk/agentbrowse`
+## `@mercuryo-ai/magicpay-sdk/magicbrowse`
 
-Composable helpers for runtimes that already use
-`@mercuryo-ai/agentbrowse` and start from observed browser forms. Each
-helper is a pure function — wire them together with AgentBrowse's
-`match` / `resolve` / `fill` primitives to assemble your own bridge.
+Composable helpers for runtimes that already use `@mercuryo-ai/magicbrowse` and
+start from observed browser forms. Each helper is a pure function — wire them
+together with MagicBrowse's `match(...)` and `fillProtectedGroup(...)` primitives
+to assemble your own bridge.
 The package does not expose a one-shot runtime on this subpath; the
 `completeObservedForm` used by our `magicpay-cli` / `magicpay-agent-cli`
-lives under `/internal/agentbrowse-runtime` and is not part of the
-stable public API.
+lives under `/internal/magicbrowse-runtime` and is not part of the stable public
+API.
 
 ### Observation enrichment
 
@@ -521,14 +521,18 @@ stable public API.
 | `findObservedFormStoredSecretCandidate(form, catalog, storedSecretRef?)` | Pick one stored-secret candidate (by `storedSecretRef` when supplied, else first applicable) |
 | `buildObservedFormCandidateItems(form, vaultCatalog)` | Build `ObservedFormCandidateItem[]` ranked by availability and confidence |
 | `selectObservedFormCandidateItem(candidates, itemRef?)` | Pick one candidate item (explicit `itemRef` wins; otherwise the top-ranked entry) |
-| `buildObservedFormMatchCandidates({ fillableForm, merchantName, selectedCandidate, explicitItemRef? })` | Assemble `AgentbrowseGroupMatchCandidate[]` so your runtime can call `match(fillableForm, { from: buildObservedFormMatchCandidates(...) })` |
+| `buildObservedFormMatchCandidates({ fillableForm, merchantName, selectedCandidate, explicitItemRef? })` | Assemble grouped candidates so your runtime can call `match(fillableForm, { from: buildObservedFormMatchCandidates(...) })` |
+
+`buildObservedFormMatchCandidates(...)` maps MagicPay `itemRef` values to
+MagicBrowse `sourceRef` values. The returned candidate objects are MagicBrowse-facing
+and do not carry MagicPay product or vault fields.
 
 ### Request input and protected-fill input
 
 | Helper | Purpose |
 | --- | --- |
 | `buildResolveInput({ clientRequestId, merchantName, fillableForm, targetItemRef?, refreshFieldKeys?, urlOrHost?, page? })` | Convert one observed form into a `MagicPayDataResolveInput` ready for `client.data.resolve(sessionId, input)` |
-| `prepareProtectedFill({ fillableForm, catalog, protectedValues, storedSecretRef? })` | Convert a values artifact into AgentBrowse protected-fill input (values flow into the browser without passing through the LLM prompt — see [Security Model](./security-model.md)) |
+| `prepareProtectedFill({ fillableForm, catalog, protectedValues, storedSecretRef? })` | Convert a values artifact into protected-fill input (values flow into the browser without passing through the LLM prompt — see [Security Model](./security-model.md)) |
 
 ### Open-data matching
 
@@ -549,64 +553,99 @@ Exported from the same subpath:
   `BuildDataResolveInputForObservedFormFailureKind`
 - `PreparedProtectedFill<TForm>`
 
-The composing example below uses `AgentbrowseMatchResolver` from
-`@mercuryo-ai/agentbrowse` when the same adapter both fetches the
-artifact and applies it. If your integration already has a ready
-grouped artifact and only needs the apply step, type the handler as
-`AgentbrowseGroupFillHandler` instead — the narrow interface is
-accepted in the same `{ resolver }` slot on `fill(...)` and makes
-intent explicit.
+The composing example below uses MagicBrowse's grouped `match(...)` result, turns
+the approved MagicPay values result into an opaque `artifactRef`, and applies
+it with `fillProtectedGroup(...)`. The artifact reader is the only boundary
+that sees raw values; public match and fill results carry refs and status only.
 
 Failure kinds for `buildResolveInput(...)` are listed in
 [Error Reference](./error-reference.md).
 
-### Composing with AgentBrowse primitives
+### Composing with MagicBrowse primitives
 
 Typical end-to-end flow for a single protected form:
 
 ```ts
-import { match, resolve, fill, type AgentbrowseMatchResolver } from '@mercuryo-ai/agentbrowse';
+import {
+  fillProtectedGroup,
+  inferProtectedFillSubjects,
+  match,
+  observe,
+  type MagicBrowseMatchReadyGroupResult,
+  type FillProtectedGroupInput,
+} from '@mercuryo-ai/magicbrowse';
 import {
   buildObservedFormCandidateItems,
   buildObservedFormMatchCandidates,
   buildResolveInput,
   prepareProtectedFill,
   selectObservedFormCandidateItem,
-} from '@mercuryo-ai/magicpay-sdk/agentbrowse';
-import { fillProtectedForm } from '@mercuryo-ai/agentbrowse/protected-fill';
+} from '@mercuryo-ai/magicpay-sdk/magicbrowse';
 
+const observation = await observe({ sessionId: magicBrowseSessionId });
+const targets = observation.orchestration?.fillableTargets?.descriptors ?? [];
+const [fillableForm] = inferProtectedFillSubjects(targets);
 const candidates = buildObservedFormCandidateItems(fillableForm, vaultCatalog);
 const selected = selectObservedFormCandidateItem(candidates, itemRef);
-
-const matched = await match(fillableForm, {
-  from: buildObservedFormMatchCandidates({
-    fillableForm,
-    merchantName,
-    selectedCandidate: selected,
-  }),
+const matchCandidates = buildObservedFormMatchCandidates({
+  fillableForm,
+  merchantName,
+  selectedCandidate: selected,
 });
 
-const magicpayResolver: AgentbrowseMatchResolver = {
-  async resolve(plan) {
-    const outcome = buildResolveInput({ /* ... */ fillableForm });
-    if (!outcome.success) throw new Error(outcome.reason);
-    const handle = await client.data.resolve(sessionId, outcome.input);
-    const result = await client.data.waitForResult(sessionId, handle);
-    if (!result.ok || result.artifact.kind !== 'values') throw new Error('…');
-    return { kind: 'artifact', artifact: result.artifact, /* metadata */ };
-  },
-  async fill(session, form, ready) {
-    const artifact = ready.artifact as { kind: 'values'; values: Record<string, string> };
-    const prepared = prepareProtectedFill({ fillableForm: form, catalog: null, protectedValues: artifact.values });
-    return fillProtectedForm({ session, ...prepared });
+const matched = await match(fillableForm, {
+  from: matchCandidates,
+});
+if (matched.kind !== 'needs_resolution_group') throw new Error(matched.kind);
+
+const outcome = buildResolveInput({
+  /* ... */
+  fillableForm,
+  ...(matched.plan.sourceRef ? { targetItemRef: matched.plan.sourceRef } : {}),
+});
+if (!outcome.success) throw new Error(outcome.reason);
+const handle = await client.data.resolve(sessionId, outcome.input);
+const result = await client.data.waitForResult(sessionId, handle);
+if (!result.ok || result.artifact.kind !== 'values') throw new Error('...');
+
+const artifactRef = `magicpay-request:${result.requestId}`;
+const responseItemRef = result.itemRef ?? handle.itemRef ?? matched.plan.sourceRef;
+const readyMatch: MagicBrowseMatchReadyGroupResult = {
+  kind: 'ready_group',
+  fillRef: matched.fillRef,
+  purpose: matched.purpose,
+  candidateRef: matched.candidateRef,
+  ...(responseItemRef ? { sourceRef: responseItemRef } : {}),
+  fieldKeys: matched.fieldKeys,
+  artifactRef,
+  confidence: matched.confidence,
+};
+
+const prepared = prepareProtectedFill({
+  fillableForm,
+  catalog: outcome.catalog,
+  protectedValues: result.artifact.values,
+  storedSecretRef: result.itemRef ?? handle.itemRef ?? matched.plan.sourceRef ?? null,
+});
+const artifactReader: FillProtectedGroupInput['artifactReader'] = {
+  async read(input) {
+    if (input.artifactRef !== artifactRef) {
+      return { status: 'blocked', reason: 'artifact_unavailable' };
+    }
+    return { status: 'resolved', values: prepared.protectedValues };
   },
 };
 
-await fill(browserSession, fillableForm, matched, { resolver: magicpayResolver });
+await fillProtectedGroup({
+  sessionId: magicBrowseSessionId,
+  subject: prepared.fillableForm,
+  match: readyMatch,
+  candidates: matchCandidates,
+  artifactReader,
+});
 ```
 
-See the `@mercuryo-ai/agentbrowse` package's own Match / Resolve / Fill
-guide for the full mental model of the three primitives.
+See the `@mercuryo-ai/magicbrowse` package for the browser runtime contract.
 
 ## Gateway Error Helpers
 

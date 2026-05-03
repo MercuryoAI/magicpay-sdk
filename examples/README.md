@@ -16,13 +16,13 @@ Before you run or adapt them, provide your own:
 - `sessionId`;
 - page or task context;
 - approval UX;
-- browser session, when an example uses AgentBrowse.
+- MagicBrowse session, when an example uses the browser bridge.
 
 ## Files
 
 - [`root-client-flow.ts`](./root-client-flow.ts)
 - [`data-resolve-values.ts`](./data-resolve-values.ts)
-- [`agentbrowse-bridge.ts`](./agentbrowse-bridge.ts)
+- [`magicbrowse-bridge.ts`](./magicbrowse-bridge.ts)
 - [`values-external-api.ts`](./values-external-api.ts)
 - [`testing-fetch.ts`](./testing-fetch.ts)
 
@@ -32,5 +32,5 @@ Use [`data-resolve-values.ts`](./data-resolve-values.ts) when you only need a
 protected `values` artifact. Use
 [`values-external-api.ts`](./values-external-api.ts) when you want to hand
 resolved values to another HTTP service. Use
-[`agentbrowse-bridge.ts`](./agentbrowse-bridge.ts) only when your runtime
-already has AgentBrowse observed forms.
+[`magicbrowse-bridge.ts`](./magicbrowse-bridge.ts) only when your runtime already has
+MagicBrowse observed forms.
