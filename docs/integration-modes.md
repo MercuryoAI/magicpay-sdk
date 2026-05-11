@@ -87,7 +87,9 @@ The helpers cover:
   [Security Model](./security-model.md) for the explicit boundary;
 - matching observed open-data targets against a session-local snapshot
   (`listObservedOpenDataEligibleTargetRefs`,
-  `resolveObservedOpenDataTargets`).
+  `resolveObservedOpenDataTargets`). These helpers decide which non-protected
+  public value fits which observed target; your browser runtime still owns the
+  actual fill step.
 
 The happy-path composes like this:
 
@@ -151,4 +153,7 @@ browser-layer concern, not a MagicPay one.
   [Getting Started](./getting-started.md).
 - For the optional MagicBrowse path, open
   [`examples/magicbrowse-bridge.ts`](../examples/magicbrowse-bridge.ts).
+- For non-protected browser fields, open
+  [Open Data Matching](./open-data.md) and
+  [`examples/open-data-magicbrowse.ts`](../examples/open-data-magicbrowse.ts).
 - For lookup details, use [API Reference](./api-reference.md).

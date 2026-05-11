@@ -24,6 +24,7 @@ Before you run or adapt them, provide your own:
 | [`root-client-flow.ts`](../examples/root-client-flow.ts) | Start here for the main `profile.facts -> data.resolve -> data.waitForResult -> actions.run -> actions.waitForResult` flow in a backend, worker, or custom runtime. |
 | [`data-resolve-values.ts`](../examples/data-resolve-values.ts) | You only need a protected `values` artifact for a form, webhook, or backend handoff. |
 | [`magicbrowse-bridge.ts`](../examples/magicbrowse-bridge.ts) | You use MagicBrowse and want an end-to-end `observe -> match -> resolve -> fillProtectedGroup` flow with a MagicPay-specific artifact reader. |
+| [`open-data-magicbrowse.ts`](../examples/open-data-magicbrowse.ts) | You use MagicBrowse and want to match public profile facts to non-protected observed fields before filling them with your browser runtime. |
 | [`values-external-api.ts`](../examples/values-external-api.ts) | You already have a request handle or request id and want to forward resolved values into an external API call. |
 | [`testing-fetch.ts`](../examples/testing-fetch.ts) | You want deterministic tests with `fetchImpl`. |
 
@@ -35,5 +36,8 @@ Before you run or adapt them, provide your own:
 - Use [`magicbrowse-bridge.ts`](../examples/magicbrowse-bridge.ts) only when you already
   have MagicBrowse observed forms and want to see how the composable bridge helpers
   compose with `match(...)` and `fillProtectedGroup(...)`.
+- Use [`open-data-magicbrowse.ts`](../examples/open-data-magicbrowse.ts)
+  when the page has ordinary public fields such as email, name, or date of
+  birth outside the protected form.
 - Use [`testing-fetch.ts`](../examples/testing-fetch.ts) when your next task is
   HTTP-level test coverage rather than live integration.

@@ -12,11 +12,12 @@ MagicPay SDK, and what to do about each one. There are three kinds:
 
 ## 1. Result Reasons
 
-`client.data.waitForResult(...)`, `client.actions.waitForResult(...)`, and
-`client.actions.confirm(...)` return `{ ok: false, reason: ... }` when a
-request does not produce a usable artifact. `client.data.resolve(...)` and
-`client.actions.run(...)` return request handles, not final results, so they
-cannot return these reasons directly.
+`client.data.waitForResult(...)`, `client.actions.waitForResult(...)`,
+`client.actions.confirm(...)`, and `client.choice.waitForResult(...)` return
+`{ ok: false, reason: ... }` when a request does not produce a usable
+artifact. `client.data.resolve(...)`, `client.actions.run(...)`, and
+`client.choice.request(...)` return request handles, not final results, so
+they cannot return these reasons directly.
 
 | Reason | When it happens | What to do |
 | --- | --- | --- |

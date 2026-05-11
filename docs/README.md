@@ -10,6 +10,8 @@ The standard runtime flow is:
    needs protected or mixed-value form data;
 3. call `actions.run(...)`, then `actions.waitForResult(...)`, when the
    runtime needs a protected action result.
+4. call `choice.request(...)`, then `choice.waitForResult(...)`, when the
+   runtime needs the user to choose from options it found.
 
 Use this route map:
 
@@ -19,6 +21,9 @@ Use this route map:
   flow.
 - [Integration Modes](./integration-modes.md)
   Explanation of the root SDK, pure helpers, and the optional MagicBrowse bridge.
+- [Open Data Matching](./open-data.md)
+  How to turn `profile.facts()` into per-target decisions for non-protected
+  browser fields.
 - [API Reference](./api-reference.md)
   Lookup reference for the public entrypoints and client methods.
 - [Error Reference](./error-reference.md)

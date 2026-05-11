@@ -340,6 +340,69 @@ interface MagicPayActionRunInput {
 - `params` — capability-specific payload; opaque to the SDK.
 - `display.summary` — short human-readable line for the approval UI.
 
+## `client.choice`
+
+| Method | Purpose |
+| --- | --- |
+| `request(sessionId, input, options?)` | Create a user-choice request for runtime-provided options |
+| `waitForResult(sessionId, handle, options?)` | Wait for or resume the final choice result |
+
+### Signatures
+
+```ts
+choice.request(
+  sessionId: string,
+  input: MagicPayChoiceRequestInput,
+  options?: MagicPayClientRequestOptions
+): Promise<MagicPayRequestHandle>;
+
+choice.waitForResult(
+  sessionId: string,
+  handle: MagicPayRequestHandle | string,
+  options?: MagicPayWaitForResultOptions
+): Promise<MagicPayRequestResult>;
+```
+
+### `MagicPayChoiceRequestInput`
+
+```ts
+interface MagicPayChoiceRequestInput {
+  clientRequestId?: string;
+  ttlMs?: number;
+  prompt: string;
+  selectionMode?: 'single';
+  allowAdjustmentPrompt?: boolean;
+  options: MagicPayChoiceOption[];
+  context?: MagicPayRequestContext;
+  bridge?: MagicPayBridgeContext;
+}
+
+interface MagicPayChoiceOption {
+  id: string;
+  title: string;
+  subtitle?: string | null;
+  description?: string | null;
+  url?: string | null;
+  price?: string | number | boolean | {
+    amount?: number;
+    currency?: string;
+    label?: string;
+  } | null;
+  images?: Array<string | { url: string; alt?: string | null }>;
+  characteristics?: Record<string, string | number | boolean>;
+  raw?: unknown;
+}
+```
+
+Use `choice.request(...)` after your runtime has already discovered a concrete
+option set: seats, plans, delivery windows, quotes, routes, or similar. The
+result artifact is `kind: 'choice'`. It may include `selected_option`, or an
+`adjustment_prompt` when the user wants the runtime to search or filter again.
+
+Choice requests are not data requests. Do not use them for login, identity,
+payment-card, or wallet values; use `data.resolve(...)` for values and
+`actions.run(...)` for protected execution or confirmation.
+
 ## Request Handles
 
 ```ts
@@ -422,7 +485,12 @@ type MagicPayRequestArtifact =
   | { kind: 'values'; values: Record<string, unknown> }
   | { kind: 'signature'; signature: string; signer: string }
   | { kind: 'reference'; reference: string; metadata?: Record<string, unknown> }
-  | { kind: 'confirmation'; confirmed: true };
+  | { kind: 'confirmation'; confirmed: true }
+  | {
+      kind: 'choice';
+      selected_option?: MagicPayChoiceOption;
+      adjustment_prompt?: string;
+    };
 ```
 
 Always branch on `artifact.kind` before reading values:
@@ -433,6 +501,8 @@ Always branch on `artifact.kind` before reading values:
 - `reference` — opaque external reference (e.g. provider transaction id).
 - `confirmation` — the user approval itself is the result; no values
   returned.
+- `choice` — selected option data or an adjustment prompt for another
+  runtime search/filter pass.
 
 ## `@mercuryo-ai/magicpay-sdk/core`
 
@@ -540,6 +610,59 @@ and do not carry MagicPay product or vault fields.
 | `listObservedOpenDataEligibleTargetRefs({ targets, protectedForms })` | Return target refs that are candidates for open-data matching (excludes protected-form fields) |
 | `resolveObservedOpenDataTargets({ targets, targetRefs, protectedForms?, snapshot?, page? })` | Resolve a batch of observed targets against a session-local open-data snapshot; returns per-target `matched` / `ambiguous` / `no_match` |
 
+```ts
+function listObservedOpenDataEligibleTargetRefs(params: {
+  targets: Record<string, TargetDescriptor>;
+  protectedForms?: ReadonlyArray<Pick<ProtectedFillForm, 'fields'>>;
+}): string[];
+
+function resolveObservedOpenDataTargets(
+  params: ResolveObservedOpenDataTargetsParams
+): Promise<{
+  host?: string;
+  results: ResolvedObservedOpenDataTarget[];
+}>;
+
+interface ResolveObservedOpenDataTargetsParams {
+  targets: Record<string, TargetDescriptor>;
+  targetRefs: ReadonlyArray<string>;
+  protectedForms?: ReadonlyArray<Pick<ProtectedFillForm, 'fields'>>;
+  snapshot?: ObservedOpenDataSnapshot;
+  page?: { url?: string };
+}
+
+interface ObservedOpenDataSnapshot {
+  valuesByField: Record<string, ObservedOpenDataEntry[]>;
+}
+
+interface ObservedOpenDataEntry {
+  fieldKey: string;
+  value: string | number;
+  source: 'profile_facts' | 'session_open_value';
+  applicability:
+    | { target: 'global' }
+    | { target: 'host'; value: string };
+}
+```
+
+`profile.facts()` gives you reusable public facts; it does not know which
+current browser target each fact should fill. The open-data helpers are the
+MagicBrowse bridge for that second step:
+
+1. Build an `ObservedOpenDataSnapshot` from profile facts or session-local
+   non-secret values.
+2. Use `listObservedOpenDataEligibleTargetRefs(...)` to exclude protected
+   form fields, password/card inputs, stale targets, and non-fillable targets.
+3. Call `resolveObservedOpenDataTargets(...)` to get one terminal decision per
+   target: `matched`, `ambiguous`, or `no_match`.
+4. Fill only `matched` results through your browser runtime. Handle
+   `ambiguous` by asking the user or narrowing the candidate set; handle
+   `no_match` by leaving the field for another strategy.
+
+See [Open Data Matching](./open-data.md) and
+[`examples/open-data-magicbrowse.ts`](../examples/open-data-magicbrowse.ts)
+for a copy-paste ready adapter.
+
 ### Types (appendix)
 
 Exported from the same subpath:
@@ -548,8 +671,7 @@ Exported from the same subpath:
 - `ObservedFormWithStoredSecrets<TForm>`, `ObservedFormWithCandidateItems<TForm>`
 - `ObservedOpenDataEntry`, `ObservedOpenDataSnapshot`, `ObservedOpenDataSource`
 - `ResolveObservedOpenDataTargetsParams`, `ResolvedObservedOpenDataTarget`
-- `BuildDataResolveInputForObservedFormOutcome`,
-  `BuildDataResolveInputForObservedFormFailureKind`
+- `BuildResolveInputOutcome`, `BuildResolveInputFailureKind`
 - `PreparedProtectedFill<TForm>`
 
 The composing example below uses MagicBrowse's grouped `match(...)` result, turns

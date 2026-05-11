@@ -14,8 +14,9 @@ with `client.sessions.completeWithOutcome(...)`.
 ### request
 
 A single unit of work inside a session: fetching data (login credentials,
-card details) or running an action (sign transaction, confirm payment).
-Created by `data.resolve(...)` or `actions.run(...)`.
+card details), running an action (sign transaction, confirm payment), or
+asking the user to choose from options found by your runtime. Created by
+`data.resolve(...)`, `actions.run(...)`, or `choice.request(...)`.
 
 ### request artifact
 
@@ -35,6 +36,8 @@ Which shape the artifact takes. One of:
   metadata.
 - `confirmation` — just `{ confirmed: true }`, for actions where the only
   outcome needed is approval.
+- `choice` — the selected option, or an adjustment prompt asking your runtime
+  to search or filter again.
 
 ### `resolutionPath`
 
@@ -121,11 +124,19 @@ Public user data (name, email, locale) that MagicPay can return without
 requiring approval. Read with `client.profile.facts()`. This is the broad
 open-data read model, not a target-by-target browser matching API.
 
-### `resolve-fields`
+### open-data matching
 
-Observed-target helper used by browser or CLI runtimes to match current
-non-secret fields against the session-local open-data snapshot. Returns one
-terminal result per target: `matched`, `ambiguous`, or `no_match`.
+Observed-target helper flow used by browser or CLI runtimes to match current
+non-secret fields against the session-local open-data snapshot. It returns one
+terminal result per target: `matched`, `ambiguous`, or `no_match`. See
+[Open Data Matching](./open-data.md).
+
+### choice request
+
+A request created by `client.choice.request(...)` after your runtime has found
+concrete options. MagicPay asks the user to select one option, or to provide an
+adjustment prompt when none of the options is acceptable. Choice requests are
+for option selection, not for protected values.
 
 ## Request input fields
 

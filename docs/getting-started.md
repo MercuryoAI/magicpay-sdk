@@ -11,6 +11,8 @@ The standard flow is:
 4. call `data.resolve(...)` and `data.waitForResult(...)` for form data;
 5. call `actions.run(...)` and `actions.waitForResult(...)` for protected
    actions when the flow needs them.
+6. call `choice.request(...)` and `choice.waitForResult(...)` when the flow
+   needs the user to choose from options.
 
 ## Before You Start
 
@@ -105,6 +107,47 @@ the browser-runtime layer above this SDK. That layer should return one
 terminal decision per target (`matched`, `ambiguous`, or `no_match`) rather
 than passing raw `profile.facts()` output through the model.
 
+For a MagicBrowse runtime, use the open-data helpers in
+`@mercuryo-ai/magicpay-sdk/magicbrowse`:
+
+```ts
+import {
+  listObservedOpenDataEligibleTargetRefs,
+  resolveObservedOpenDataTargets,
+} from '@mercuryo-ai/magicpay-sdk/magicbrowse';
+
+const facts = await client.profile.facts();
+const snapshot = {
+  valuesByField: {
+    email: [
+      {
+        fieldKey: 'email',
+        value: String(facts.facts.email),
+        source: 'profile_facts' as const,
+        applicability: { target: 'global' as const },
+      },
+    ],
+  },
+};
+
+const targetRefs = listObservedOpenDataEligibleTargetRefs({
+  targets: observedTargetsByRef,
+  protectedForms: observedProtectedForms,
+});
+
+const openData = await resolveObservedOpenDataTargets({
+  targets: observedTargetsByRef,
+  targetRefs,
+  protectedForms: observedProtectedForms,
+  snapshot,
+  page: { url: 'https://airline.example.com/checkout' },
+});
+```
+
+See [Open Data Matching](./open-data.md) and
+[`examples/open-data-magicbrowse.ts`](../examples/open-data-magicbrowse.ts)
+for a complete reusable adapter.
+
 ## 5. Resolve Data For A Protected Step
 
 Use `data.resolve(...)` when the runtime needs actual field values for the
@@ -146,8 +189,12 @@ if (cardResult.artifact.kind !== 'values') {
   throw new Error(`Expected values, received ${cardResult.artifact.kind}`);
 }
 
-console.log(cardResult.artifact.values);
+await yourRuntime.fillPaymentCard(cardResult.artifact.values);
 ```
+
+`cardResult.artifact.values` is short-lived handoff material. Forward it to
+your trusted browser or provider boundary, then drop it. Do not log it or send
+it back through an LLM prompt.
 
 Important root-SDK behavior:
 
@@ -192,7 +239,58 @@ The root SDK hides the same waiting and artifact mechanics here too. The
 runtime creates the action request, then waits for the final result without
 manually coordinating request polling.
 
-## 7. Handle Failures
+## 7. Ask The User To Choose From Options
+
+Use `choice.request(...)` when your runtime has found concrete options and
+needs the user to pick one before the flow can continue.
+
+```ts
+const choiceHandle = await client.choice.request(sessionId, {
+  clientRequestId: 'airline-seat-choice-1',
+  prompt: 'Choose a seat for the SF to NYC flight.',
+  options: [
+    {
+      id: 'seat-12a',
+      title: 'Seat 12A',
+      subtitle: 'Window',
+      price: { amount: 18, currency: 'USD', label: '$18' },
+    },
+    {
+      id: 'seat-12c',
+      title: 'Seat 12C',
+      subtitle: 'Aisle',
+      price: { amount: 18, currency: 'USD', label: '$18' },
+    },
+  ],
+  context: {
+    url: 'https://airline.example.com/seats',
+    pageTitle: 'Choose seats',
+    merchantName: 'Airline Example',
+  },
+});
+
+const choiceResult = await client.choice.waitForResult(sessionId, choiceHandle);
+
+if (!choiceResult.ok) {
+  throw new Error(choiceResult.reason);
+}
+
+if (choiceResult.artifact.kind !== 'choice') {
+  throw new Error(`Expected choice, received ${choiceResult.artifact.kind}`);
+}
+
+if (choiceResult.artifact.adjustment_prompt) {
+  await searchAgain(choiceResult.artifact.adjustment_prompt);
+} else if (choiceResult.artifact.selected_option) {
+  await continueWithOption(choiceResult.artifact.selected_option.id);
+}
+```
+
+Use choice requests for option selection only. Do not use them for protected
+field values; use `data.resolve(...)` for values and `actions.run(...)` for
+approval or execution.
+
+## 8. Handle Failures
 
 Both `data.waitForResult(...)` and `actions.waitForResult(...)` can return
 `{ ok: false, reason }`. This is a normal branch, not an exception.
@@ -231,7 +329,7 @@ if (!result.ok) {
 See [Error Reference](./error-reference.md) for the full table, bridge
 failure kinds, and HTTP-level errors.
 
-## 8. Continue In Your Runtime
+## 9. Continue In Your Runtime
 
 At this point the SDK has done its part. Your runtime decides what happens
 next:

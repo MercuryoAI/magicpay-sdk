@@ -23,6 +23,7 @@ Before you run or adapt them, provide your own:
 - [`root-client-flow.ts`](./root-client-flow.ts)
 - [`data-resolve-values.ts`](./data-resolve-values.ts)
 - [`magicbrowse-bridge.ts`](./magicbrowse-bridge.ts)
+- [`open-data-magicbrowse.ts`](./open-data-magicbrowse.ts)
 - [`values-external-api.ts`](./values-external-api.ts)
 - [`testing-fetch.ts`](./testing-fetch.ts)
 
@@ -34,3 +35,6 @@ protected `values` artifact. Use
 resolved values to another HTTP service. Use
 [`magicbrowse-bridge.ts`](./magicbrowse-bridge.ts) only when your runtime already has
 MagicBrowse observed forms.
+Use [`open-data-magicbrowse.ts`](./open-data-magicbrowse.ts) when your runtime
+has MagicBrowse observed targets and wants to match public profile facts to
+ordinary non-protected fields.

@@ -8,8 +8,9 @@ values from that vault and run protected actions — without the actual
 values ever entering the LLM prompt that orchestrates the work.
 
 The main client methods are `profile.facts()`,
-`data.resolve(...)` / `data.waitForResult(...)`, and
-`actions.run(...)` / `actions.waitForResult(...)`.
+`data.resolve(...)` / `data.waitForResult(...)`,
+`actions.run(...)` / `actions.waitForResult(...)`, and
+`choice.request(...)` / `choice.waitForResult(...)`.
 
 Use it when your application, worker, agent runtime, or MCP tool needs to:
 
@@ -17,6 +18,8 @@ Use it when your application, worker, agent runtime, or MCP tool needs to:
 - resolve login, identity, wallet, or payment-card values stored in the
   user's MagicPay vault through one request flow;
 - run protected actions such as confirmation or provider-backed execution;
+- ask the user to choose from runtime-provided options and resume with the
+  selected option;
 - wait for a request to complete without writing your own polling logic;
 - keep request inputs, session helpers, and bridge metadata inside one typed client.
 
@@ -171,8 +174,12 @@ if (result.artifact.kind !== 'values') {
   throw new Error(`Unexpected artifact kind: ${result.artifact.kind}`);
 }
 
-console.log(result.artifact.values);
+await yourRuntime.fillPaymentCard(result.artifact.values);
 ```
+
+Treat `result.artifact.values` as short-lived handoff material. Forward it
+directly to the trusted browser or provider boundary you own; do not log it,
+print it, or put it back into an LLM prompt.
 
 `session.type` is the billing classification of the workflow
 (`payment` / `subscription` / `cancellation`); the field-level schema
@@ -186,7 +193,8 @@ The flow is always the same shape:
 2. call `profile.facts()` when open reusable data is enough, or
    `data.resolve(...)` → `data.waitForResult(...)` for protected field
    values, or `actions.run(...)` → `actions.waitForResult(...)` for protected
-   actions;
+   actions, or `choice.request(...)` → `choice.waitForResult(...)` when the
+   user must choose from options your runtime found;
 3. pass the returned values or action result into your own runtime step.
 
 ### When `profile.facts()` Is Not Enough
@@ -201,6 +209,10 @@ to the browser-runtime layer above this SDK and should produce one terminal
 outcome per target — `matched`, `ambiguous`, or `no_match` — by combining
 facts and page context. Do not reconstruct that decision from raw
 `profile.facts()` output in your own prompt or code.
+
+For MagicBrowse runtimes, use the open-data helpers documented in
+[Open Data Matching](./docs/open-data.md) and shown in
+[`examples/open-data-magicbrowse.ts`](./examples/open-data-magicbrowse.ts).
 
 ### Why two calls (`resolve` + `waitForResult`)?
 
@@ -236,6 +248,8 @@ is one of:
   external resource (e.g. a provider-specific transaction id).
 - `confirmation` — `{ confirmed: true }` for actions where the user
   approval itself is the result.
+- `choice` — selected option data, or an adjustment prompt when the user
+  asks the runtime to change the option set.
 
 Branch on `artifact.kind` before using the values. See
 [Error Reference](./docs/error-reference.md) for `{ ok: false, reason }`
@@ -254,6 +268,9 @@ Your runtime decides what to do with a successful result:
 - continue a broader orchestration flow;
 - report progress back to your own UI or logs.
 
+Do not log protected `values` artifacts. Log request ids, field keys, status,
+or redacted summaries instead.
+
 For browser runtimes, `client.sessions.create(...)` accepts an optional
 `browser` binding with `sessionId`, `run`, and `step`. Backend and
 API-only flows leave that block out.
@@ -264,8 +281,10 @@ under `@mercuryo-ai/magicpay-sdk/core` and
 composable helpers (candidate building, request input, protected-fill input,
 open-data matching) designed to compose with `@mercuryo-ai/magicbrowse`
 `match(...)` and `fillProtectedGroup(...)`.
-See [Integration Modes](./docs/integration-modes.md) and the bridge
-example under [`examples/magicbrowse-bridge.ts`](./examples/magicbrowse-bridge.ts)
+See [Integration Modes](./docs/integration-modes.md), the protected bridge
+example under [`examples/magicbrowse-bridge.ts`](./examples/magicbrowse-bridge.ts),
+and the open-data example under
+[`examples/open-data-magicbrowse.ts`](./examples/open-data-magicbrowse.ts)
 if you need either.
 
 ## Continue Reading
@@ -279,5 +298,7 @@ if you need either.
   integrating.
 - Use [Examples Index](./docs/examples.md) for example coverage and bridge
   notes.
+- Use [Open Data Matching](./docs/open-data.md) when a browser page has
+  non-protected fields such as name, email, or date of birth.
 - Use [Glossary](./docs/glossary.md) when terms like `resolutionPath`,
   `requestId`, `itemRef`, or `profile fact` are still new.
