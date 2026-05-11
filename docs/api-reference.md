@@ -501,9 +501,8 @@ start from observed browser forms. Each helper is a pure function — wire them
 together with MagicBrowse's `match(...)` and `fillProtectedGroup(...)` primitives
 to assemble your own bridge.
 The package does not expose a one-shot runtime on this subpath; the
-`completeObservedForm` used by our `magicpay-cli` / `magicpay-agent-cli`
-lives under `/internal/magicbrowse-runtime` and is not part of the stable public
-API.
+`completeObservedForm` used by our `magicpay-cli` lives under
+`/internal/magicbrowse-runtime` and is not part of the stable public API.
 
 ### Observation enrichment
 

@@ -121,8 +121,8 @@ public API.
 
 A shared runtime that does make those decisions still exists under
 `@mercuryo-ai/magicpay-sdk/internal/magicbrowse-runtime`; it is what
-`magicpay-cli` and `magicpay-agent-cli` consume. This internal path is not part
-of the stable consumer API — the `/internal/` segment is the signal. External
+`magicpay-cli` consumes. This internal path is not part of the stable consumer
+API — the `/internal/` segment is the signal. External
 consumers assemble their own version from the
 listed public helpers instead.
 
