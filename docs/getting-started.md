@@ -65,7 +65,7 @@ const { session } = await client.sessions.create({
   merchantName: 'Airline Example',
   context: {
     url: 'https://airline.example.com/checkout',
-    task: 'resolve payment card and submit checkout',
+    task: 'resolve payment card for checkout',
   },
   metadata: {
     source: 'backend-worker',
