@@ -403,6 +403,36 @@ Choice requests are not data requests. Do not use them for login, identity,
 payment-card, or wallet values; use `data.resolve(...)` for values and
 `actions.run(...)` for protected execution or confirmation.
 
+## `client.requests`
+
+| Method | Purpose |
+| --- | --- |
+| `confirmOtp(sessionId, requestId, otp, options?)` | Confirm an eligible pending runtime request with the OTP the user provided |
+| `waitForResult(sessionId, handle, options?)` | Generic waiter for any runtime request handle |
+
+### Signatures
+
+```ts
+requests.confirmOtp(
+  sessionId: string,
+  requestId: string,
+  otp: string,
+  options?: MagicPayClientRequestOptions
+): Promise<MagicPayRequestHandle>;
+
+requests.waitForResult(
+  sessionId: string,
+  handle: MagicPayRequestHandle | string,
+  options?: MagicPayWaitForResultOptions
+): Promise<MagicPayRequestResult>;
+```
+
+OTP is an optional approval channel for eligible pending confirmation
+requests. Do not ask for or submit an OTP before the request exists. If the
+user approves the same request in MagicPay web or mobile, skip
+`confirmOtp(...)` and call `requests.waitForResult(...)` on the existing
+handle.
+
 ## Request Handles
 
 ```ts
@@ -417,10 +447,11 @@ interface MagicPayRequestHandle {
 type MagicPayResolutionPath = 'auto' | 'confirm' | 'provide';
 ```
 
-`data.resolve(...)` and `actions.run(...)` return a `MagicPayRequestHandle`
-that you pass into the matching `waitForResult(...)` call. For idempotent
-retries, provide your own stable `clientRequestId` inside the `input`
-object.
+`data.resolve(...)`, `actions.run(...)`, `choice.request(...)`, and
+`requests.confirmOtp(...)` return a `MagicPayRequestHandle`. Pass the handle
+or request id into the matching waiter, or use `requests.waitForResult(...)`
+when your resume path is request-generic. For idempotent retries, provide
+your own stable `clientRequestId` inside the `input` object.
 
 ## Client Request Options
 
@@ -451,7 +482,8 @@ this request-options object.
 
 ## Root Result Model
 
-`data.waitForResult(...)`, `actions.waitForResult(...)`, and
+`data.waitForResult(...)`, `actions.waitForResult(...)`,
+`choice.waitForResult(...)`, `requests.waitForResult(...)`, and
 `actions.confirm(...)` all return the same discriminated union:
 
 ```ts

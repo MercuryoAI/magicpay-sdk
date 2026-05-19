@@ -10,7 +10,10 @@ values ever entering the LLM prompt that orchestrates the work.
 The main client methods are `profile.facts()`,
 `data.resolve(...)` / `data.waitForResult(...)`,
 `actions.run(...)` / `actions.waitForResult(...)`, and
-`choice.request(...)` / `choice.waitForResult(...)`.
+`choice.request(...)` / `choice.waitForResult(...)`. The generic
+`requests.waitForResult(...)` waits on any request handle, and
+`requests.confirmOtp(...)` can confirm an eligible pending approval when the
+user chooses the OTP channel.
 
 Use it when your application, worker, agent runtime, or MCP tool needs to:
 
@@ -234,6 +237,29 @@ If you just want the result in one shot, chain the two calls:
 const handle = await client.data.resolve(sessionId, input);
 const result = await client.data.waitForResult(sessionId, handle);
 ```
+
+### Optional OTP Approval
+
+Eligible pending confirmation requests may also be approved by OTP. OTP is
+not mandatory and does not replace MagicPay web or mobile approval. Keep the
+same request handle, let the user choose either channel, then resume through
+the generic waiter:
+
+```ts
+const handle = await client.actions.run(session.id, {
+  capability: 'confirm',
+  params: { summary: 'Approve checkout' },
+});
+
+// Only call this after the request exists and the user provides the OTP.
+await client.requests.confirmOtp(session.id, handle.requestId, otpFromUser);
+
+const result = await client.requests.waitForResult(session.id, handle);
+```
+
+Do not log, store, or echo the OTP. If the user approves in MagicPay web or
+mobile instead, skip `confirmOtp(...)` and call
+`client.requests.waitForResult(...)` on the same handle.
 
 ### What does a successful result look like?
 
